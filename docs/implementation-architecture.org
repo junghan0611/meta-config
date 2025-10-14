@@ -1,0 +1,1036 @@
+#+title:      Implementation Architecture: 표준 프로토콜 기반 구현
+#+date:       [2025-10-14 Mon 14:10]
+#+filetags:   :meta:implementation:architecture:acp:mcp:a2a:
+#+identifier: 20251014T141000
+#+export_file_name: 20251014T141000-implementation.md
+
+* Implementation Architecture: 표준 프로토콜 기반 구현
+
+**버전**: 1.0.0  
+**상태**: 🛠️ DESIGN  
+**업데이트**: 2025-10-14
+
+#+begin_quote
+"Standards-based, production-ready, yet personal"
+"표준 기반, 프로덕션 품질, 그러나 개인용"
+#+end_quote
+
+** 🏗️ 전체 아키텍처
+
+*** 계층별 프로토콜 맵핑
+
+#+begin_src
+┌─────────────────────────────────────────────────┐
+│  Layer 5: User Interface                        │
+│  - Emacs/Org-mode                               │
+│  - agent-shell.el (ACP Client)                 │
+│  - Natural Language Input                      │
+└─────────────────────────────────────────────────┘
+                     ↕ ACP (JSON-RPC 2.0)
+                       stdio / TCP:5000
+┌─────────────────────────────────────────────────┐
+│  Layer 4: Meta Agent                            │
+│  - Claude Code (via ACP)                        │
+│  - Intent Recognition                           │
+│  - Domain Routing                               │
+│  - Result Aggregation                           │
+│  - Memory: ~/claude-memory/                    │
+│  - Config: CLAUDE.md                           │
+└─────────────────────────────────────────────────┘
+                     ↕ A2A (JSON-RPC 2.0)
+                       HTTP:8080-8089
+┌─────────────────────────────────────────────────┐
+│  Layer 3: Domain Agents (A2A Servers)           │
+│  ┌───────────────────────────────────────────┐  │
+│  │ Family-Config Agent (Port 8080)          │  │
+│  │ - Agent Card: family.* capabilities       │  │
+│  │ - A2A Server (express/fastapi)           │  │
+│  │ - MCP Client (도구 호출)                  │  │
+│  │ - Memory: ~/org/family/                  │  │
+│  │ - Config: FAMILY.md                       │  │
+│  └───────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────┐  │
+│  │ Work-Config Agent (Port 8081) [미래]     │  │
+│  └───────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────┐  │
+│  │ Health-Config Agent (Port 8082) [미래]   │  │
+│  └───────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+                     ↕ MCP (JSON-RPC 2.0)
+                       stdio / HTTP
+┌─────────────────────────────────────────────────┐
+│  Layer 2: MCP Servers (Tools)                   │
+│  - mcp__web_search                             │
+│  - mcp__n8n                                    │
+│  - mcp__playwright                             │
+│  - mcp__git                                    │
+│  - mcp__supabase                               │
+│  - mcp__google_calendar                        │
+│  - mcp__filesystem                             │
+└─────────────────────────────────────────────────┘
+                     ↕ HTTP/APIs
+┌─────────────────────────────────────────────────┐
+│  Layer 1: External Services                     │
+│  - Google (Flights, Calendar, Drive)           │
+│  - Booking.com, Airlines, Banks...             │
+└─────────────────────────────────────────────────┘
+#+end_src
+
+** 📂 프로젝트 구조
+
+*** 전체 시스템
+
+#+begin_src
+~/repos/gh/
+├── meta-config/                      # 아키텍처 문서 (이 프로젝트)
+│   ├── README.org                    # 계층적 에이전트 개념
+│   ├── docs/
+│   │   ├── delegation-protocol.org  # A2A 기반 위임 프로토콜
+│   │   ├── protocol-standards-analysis.org  # ACP/MCP/A2A 분석
+│   │   └── implementation-architecture.org  # 이 문서
+│   ├── examples/                     # 시나리오 예제
+│   └── schemas/                      # JSON 스키마
+│
+├── family-config/                    # Family Domain Agent (A2A Server)
+│   ├── FAMILY.md                     # Agent 지침서
+│   ├── README.md                     # 프로젝트 소개
+│   ├── src/                          # 소스 코드
+│   │   ├── a2a-server/              # A2A 서버 구현
+│   │   │   ├── server.ts            # Express/Fastapi 서버
+│   │   │   ├── agent-card.json      # Agent Card
+│   │   │   ├── task-processor.ts    # 작업 처리
+│   │   │   └── routes/              # API 라우트
+│   │   ├── mcp-client/              # MCP 클라이언트
+│   │   │   ├── web-search.ts
+│   │   │   ├── calendar.ts
+│   │   │   └── filesystem.ts
+│   │   └── domain/                   # 도메인 로직
+│   │       ├── travel/
+│   │       ├── finance/
+│   │       └── events/
+│   ├── memory/                       # PARA 메모리
+│   ├── templates/                    # Org 템플릿
+│   └── tests/                        # 테스트
+│
+└── claude-config/                    # Meta Agent (ACP Client)
+    ├── CLAUDE.md
+    └── memory/
+
+~/.config/claude-code/                # Claude Code 설정
+    └── mcp/                          # MCP 서버 설정
+
+~/org/family/                         # 실제 데이터 (Private)
+#+end_src
+
+** 🔧 구현 상세
+
+*** 1. Family-Config A2A Server
+
+**** Agent Card (능력 광고)
+
+#+begin_src json
+// family-config/src/a2a-server/agent-card.json
+{
+  "agentId": "family-config-agent",
+  "version": "1.0.0",
+  "name": "Family Life Management Agent",
+  "description": "AI agent for managing family life: travel, finance, education, events",
+  
+  "author": {
+    "name": "Junghan Kim",
+    "email": "junghanacs@gmail.com",
+    "url": "https://notes.junghanacs.com"
+  },
+  
+  "license": "MIT",
+  
+  "capabilities": [
+    {
+      "id": "family.travel.plan",
+      "name": "Travel Planning",
+      "description": "Plan family trips with budget optimization and MCP-powered research",
+      "version": "1.0.0",
+      "category": "planning",
+      "tags": ["travel", "family", "budget", "planning"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "Travel destination"
+          },
+          "dates": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date" },
+              "end": { "type": "string", "format": "date" }
+            },
+            "required": ["start", "end"]
+          },
+          "budget": {
+            "type": "number",
+            "description": "Total budget in KRW"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["dad", "mom", "child", "infant"]
+                },
+                "age": { "type": "number" },
+                "name": { "type": "string" },
+                "specialNeeds": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "required": ["role"]
+            }
+          },
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "accommodationType": { "type": "string" },
+              "activities": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "dietaryRestrictions": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["destination", "dates", "budget", "participants"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "filePath": { "type": "string" },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "totalCost": { "type": "number" },
+              "withinBudget": { "type": "boolean" },
+              "flightsFound": { "type": "number" },
+              "accommodationsFound": { "type": "number" }
+            }
+          },
+          "nextActions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": { "type": "string" },
+                "deadline": { "type": "string", "format": "date-time" },
+                "estimatedCost": { "type": "number" }
+              }
+            }
+          }
+        }
+      },
+      
+      "estimatedDuration": 45,
+      "requiresHumanApproval": false,
+      "mcpToolsUsed": ["web_search", "calendar", "filesystem"]
+    },
+    
+    {
+      "id": "family.events.remind",
+      "name": "Event Reminders",
+      "description": "Track and remind family events (birthdays, ceremonies)",
+      "version": "1.0.0",
+      "category": "monitoring",
+      "tags": ["events", "reminders", "ceremonies"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lookAheadDays": {
+            "type": "number",
+            "default": 7,
+            "description": "How many days to look ahead"
+          }
+        }
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "upcomingEvents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string", "format": "date" },
+                "type": { "type": "string" },
+                "person": { "type": "string" },
+                "suggestedGift": { "type": "number" }
+              }
+            }
+          }
+        }
+      },
+      
+      "estimatedDuration": 5,
+      "requiresHumanApproval": false,
+      "mcpToolsUsed": ["filesystem", "calendar"]
+    },
+    
+    {
+      "id": "family.finance.track",
+      "name": "Finance Tracking",
+      "description": "Track family expenses and generate budget reports",
+      "version": "1.0.0",
+      "category": "tracking",
+      "tags": ["finance", "budget", "expenses", "ledger"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "enum": ["daily", "weekly", "monthly", "yearly"]
+          },
+          "category": { "type": "string" }
+        },
+        "required": ["period"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "report": { "type": "string" },
+          "totalSpent": { "type": "number" },
+          "budgetStatus": { "type": "string" },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      
+      "estimatedDuration": 10,
+      "requiresHumanApproval": false,
+      "mcpToolsUsed": ["filesystem", "supabase"]
+    },
+    
+    {
+      "id": "family.education.schedule",
+      "name": "Education Scheduling",
+      "description": "Manage children's education schedules and track progress",
+      "version": "1.0.0",
+      "category": "planning",
+      "tags": ["education", "schedule", "children"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "child": { "type": "string" },
+          "subject": { "type": "string" },
+          "dateRange": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date" },
+              "end": { "type": "string", "format": "date" }
+            }
+          }
+        },
+        "required": ["child"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schedule": { "type": "string" },
+          "conflicts": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "calendarSynced": { "type": "boolean" }
+        }
+      },
+      
+      "estimatedDuration": 15,
+      "requiresHumanApproval": false,
+      "mcpToolsUsed": ["filesystem", "calendar"]
+    }
+  ],
+  
+  "supportedModalities": ["text", "markdown", "json", "org-mode"],
+  
+  "authentication": {
+    "type": "bearer",
+    "required": false,
+    "description": "Optional for personal use, required for multi-user"
+  },
+  
+  "rateLimit": {
+    "requestsPerMinute": 10,
+    "concurrentTasks": 3,
+    "maxTaskDuration": 300
+  },
+  
+  "endpoints": {
+    "agentCard": "GET http://localhost:8080/agent-card",
+    "createTask": "POST http://localhost:8080/tasks",
+    "getTask": "GET http://localhost:8080/tasks/{taskId}",
+    "cancelTask": "DELETE http://localhost:8080/tasks/{taskId}"
+  },
+  
+  "healthCheck": "GET http://localhost:8080/health"
+}
+#+end_src
+
+**** A2A Server 구현 (TypeScript)
+
+#+begin_src typescript
+// family-config/src/a2a-server/server.ts
+import express, { Express, Request, Response } from 'express';
+import { MCPClient } from '@modelcontextprotocol/sdk/client/index.js';
+import agentCard from './agent-card.json';
+
+const app: Express = express();
+app.use(express.json());
+
+// Task 저장소
+const tasks = new Map<string, Task>();
+
+// MCP 클라이언트 초기화
+const mcpClient = new MCPClient({
+  name: 'family-config-agent',
+  version: '1.0.0'
+});
+
+// 1. Agent Card 제공
+app.get('/agent-card', (req: Request, res: Response) => {
+  res.json(agentCard);
+});
+
+// 2. Health Check
+app.get('/health', (req: Request, res: Response) => {
+  res.json({
+    status: 'healthy',
+    uptime: process.uptime(),
+    mcpConnections: mcpClient.getConnections().length
+  });
+});
+
+// 3. Task 생성
+app.post('/tasks', async (req: Request, res: Response) => {
+  const { taskId, capability, input, preferences } = req.body;
+  
+  // 유효성 검증
+  const capabilityDef = agentCard.capabilities.find(
+    c => c.id === capability
+  );
+  
+  if (!capabilityDef) {
+    return res.status(404).json({
+      error: 'CAPABILITY_NOT_FOUND',
+      message: `Capability '${capability}' not supported`
+    });
+  }
+  
+  // Task 저장
+  const task: Task = {
+    taskId,
+    capability,
+    input,
+    preferences,
+    status: 'accepted',
+    createdAt: new Date().toISOString(),
+    estimatedDuration: capabilityDef.estimatedDuration
+  };
+  tasks.set(taskId, task);
+  
+  // 즉시 수락 응답 (202 Accepted)
+  res.status(202).json({
+    taskId,
+    status: 'accepted',
+    estimatedDuration: task.estimatedDuration,
+    message: `Task ${capability} accepted`
+  });
+  
+  // 백그라운드에서 실행
+  processTaskAsync(task).catch(err => {
+    task.status = 'failed';
+    task.error = err.message;
+  });
+});
+
+// 4. Task 상태 조회
+app.get('/tasks/:taskId', (req: Request, res: Response) => {
+  const task = tasks.get(req.params.taskId);
+  
+  if (!task) {
+    return res.status(404).json({
+      error: 'TASK_NOT_FOUND'
+    });
+  }
+  
+  res.json({
+    taskId: task.taskId,
+    status: task.status,
+    progress: task.progress || 0,
+    result: task.result,
+    error: task.error
+  });
+});
+
+// 5. Task 취소
+app.delete('/tasks/:taskId', (req: Request, res: Response) => {
+  const task = tasks.get(req.params.taskId);
+  
+  if (!task) {
+    return res.status(404).json({ error: 'TASK_NOT_FOUND' });
+  }
+  
+  if (task.status === 'completed' || task.status === 'failed') {
+    return res.status(409).json({
+      error: 'TASK_ALREADY_TERMINAL',
+      message: 'Cannot cancel completed or failed task'
+    });
+  }
+  
+  task.status = 'cancelled';
+  res.json({ taskId: task.taskId, status: 'cancelled' });
+});
+
+// 백그라운드 작업 처리
+async function processTaskAsync(task: Task) {
+  task.status = 'in_progress';
+  task.progress = 0;
+  
+  try {
+    switch (task.capability) {
+      case 'family.travel.plan':
+        await processTravelPlanning(task);
+        break;
+      case 'family.events.remind':
+        await processEventReminders(task);
+        break;
+      case 'family.finance.track':
+        await processFinanceTracking(task);
+        break;
+      default:
+        throw new Error(`Unknown capability: ${task.capability}`);
+    }
+    
+    task.status = 'completed';
+    task.progress = 1.0;
+  } catch (error) {
+    task.status = 'failed';
+    task.error = error.message;
+  }
+}
+
+// 여행 계획 처리
+async function processTravelPlanning(task: Task) {
+  const { destination, dates, budget, participants } = task.input;
+  
+  // Progress: 10%
+  task.progress = 0.1;
+  
+  // 1. MCP로 항공권 검색
+  const flights = await mcpClient.callTool({
+    name: 'web_search',
+    arguments: {
+      query: `${destination} 항공권 ${dates.start} 왕복 ${participants.length}명`,
+      limit: 10
+    }
+  });
+  
+  // Progress: 40%
+  task.progress = 0.4;
+  
+  // 2. MCP로 숙박 검색
+  const accommodations = await mcpClient.callTool({
+    name: 'web_search',
+    arguments: {
+      query: `${destination} 가족 숙소 ${dates.start}`,
+      limit: 15
+    }
+  });
+  
+  // Progress: 70%
+  task.progress = 0.7;
+  
+  // 3. 과거 여행 패턴 분석 (MCP filesystem)
+  const pastTrips = await mcpClient.request({
+    method: 'resources/read',
+    params: { uri: 'file://~/org/family/travel/history/' }
+  });
+  
+  // 4. Org 파일 생성
+  const orgContent = generateTripPlanningOrg({
+    destination,
+    dates,
+    budget,
+    participants,
+    flights,
+    accommodations,
+    pastTrips
+  });
+  
+  const filePath = `~/org/family/travel/${dates.start.replace(/-/g, '')}-${destination}.org`;
+  
+  await mcpClient.callTool({
+    name: 'write_file',
+    arguments: {
+      path: filePath,
+      content: orgContent
+    }
+  });
+  
+  // Progress: 90%
+  task.progress = 0.9;
+  
+  // 5. Calendar 동기화
+  await mcpClient.callTool({
+    name: 'google_calendar_create_event',
+    arguments: {
+      title: `가족 여행: ${destination}`,
+      start: dates.start,
+      end: dates.end,
+      description: `예산: ${budget.toLocaleString()}원`
+    }
+  });
+  
+  // 완료
+  task.result = {
+    filePath,
+    summary: {
+      totalCost: 2850000,  // 계산된 값
+      withinBudget: true,
+      flightsFound: flights.length,
+      accommodationsFound: accommodations.length
+    },
+    nextActions: [
+      {
+        action: 'book_flight',
+        deadline: '2025-04-30T23:59:59+09:00',
+        estimatedCost: 680000
+      }
+    ]
+  };
+}
+
+// 서버 시작
+const PORT = 8080;
+app.listen(PORT, () => {
+  console.log(`Family-Config A2A Server running on http://localhost:${PORT}`);
+  console.log(`Agent Card: http://localhost:${PORT}/agent-card`);
+});
+
+export default app;
+#+end_src
+
+**** 패키지 구조
+
+#+begin_src json
+// family-config/package.json
+{
+  "name": "family-config-agent",
+  "version": "1.0.0",
+  "description": "AI Agent for Family Life Management (A2A Server)",
+  "main": "dist/server.js",
+  
+  "scripts": {
+    "dev": "tsx watch src/a2a-server/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "jest"
+  },
+  
+  "dependencies": {
+    "express": "^4.18.2",
+    "@modelcontextprotocol/sdk": "^0.6.0",
+    "zod": "^3.22.0"
+  },
+  
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "tsx": "^4.7.0",
+    "@types/express": "^4.17.21"
+  }
+}
+#+end_src
+
+*** 2. Meta Agent (Claude Code)
+
+**** A2A Client 구현
+
+#+begin_src typescript
+// claude-config/src/a2a-client.ts
+import axios from 'axios';
+
+class A2AClient {
+  private baseUrl: string;
+  
+  constructor(agentUrl: string) {
+    this.baseUrl = agentUrl;
+  }
+  
+  // Agent 능력 조회
+  async getAgentCard() {
+    const response = await axios.get(`${this.baseUrl}/agent-card`);
+    return response.data;
+  }
+  
+  // Task 생성
+  async createTask(capability: string, input: any, preferences?: any) {
+    const taskId = `task_${Date.now()}`;
+    
+    const response = await axios.post(`${this.baseUrl}/tasks`, {
+      taskId,
+      capability,
+      input,
+      preferences
+    });
+    
+    return { taskId, ...response.data };
+  }
+  
+  // Task 상태 조회
+  async getTaskStatus(taskId: string) {
+    const response = await axios.get(`${this.baseUrl}/tasks/${taskId}`);
+    return response.data;
+  }
+  
+  // Task 완료 대기 (polling)
+  async waitForCompletion(taskId: string, pollInterval = 2000) {
+    return new Promise((resolve, reject) => {
+      const poll = setInterval(async () => {
+        try {
+          const status = await this.getTaskStatus(taskId);
+          
+          if (status.status === 'completed') {
+            clearInterval(poll);
+            resolve(status.result);
+          } else if (status.status === 'failed') {
+            clearInterval(poll);
+            reject(new Error(status.error));
+          }
+          
+          // Progress 로그
+          console.log(`Task ${taskId}: ${status.progress * 100}%`);
+        } catch (error) {
+          clearInterval(poll);
+          reject(error);
+        }
+      }, pollInterval);
+    });
+  }
+}
+
+// 사용 예시
+const familyAgent = new A2AClient('http://localhost:8080');
+
+// 1. Agent 능력 확인
+const card = await familyAgent.getAgentCard();
+console.log('Family Agent Capabilities:', card.capabilities.map(c => c.id));
+
+// 2. 여행 계획 작업 생성
+const { taskId } = await familyAgent.createTask('family.travel.plan', {
+  destination: '제주도',
+  dates: { start: '2025-07-20', end: '2025-07-27' },
+  budget: 3000000,
+  participants: [
+    { role: 'dad' },
+    { role: 'mom' },
+    { role: 'child', age: 8 },
+    { role: 'child', age: 5 }
+  ]
+});
+
+// 3. 완료 대기
+const result = await familyAgent.waitForCompletion(taskId);
+console.log('Travel plan created:', result.filePath);
+#+end_src
+
+*** 3. Agent 검색 및 라우팅
+
+**** Meta Agent의 Agent Registry
+
+#+begin_src typescript
+// claude-config/src/agent-registry.ts
+interface AgentRegistryEntry {
+  agentId: string;
+  url: string;
+  agentCard: any;
+  lastHealthCheck: Date;
+  healthy: boolean;
+}
+
+class AgentRegistry {
+  private agents: Map<string, AgentRegistryEntry> = new Map();
+  
+  // Agent 등록
+  async register(agentUrl: string) {
+    const client = new A2AClient(agentUrl);
+    const agentCard = await client.getAgentCard();
+    
+    this.agents.set(agentCard.agentId, {
+      agentId: agentCard.agentId,
+      url: agentUrl,
+      agentCard,
+      lastHealthCheck: new Date(),
+      healthy: true
+    });
+    
+    console.log(`Registered agent: ${agentCard.agentId}`);
+  }
+  
+  // Capability로 Agent 찾기
+  findAgentByCapability(capability: string): AgentRegistryEntry | null {
+    for (const [_, agent] of this.agents) {
+      const hasCapability = agent.agentCard.capabilities.some(
+        (c: any) => c.id === capability
+      );
+      
+      if (hasCapability && agent.healthy) {
+        return agent;
+      }
+    }
+    
+    return null;
+  }
+  
+  // Health check (주기적 실행)
+  async healthCheck() {
+    for (const [agentId, agent] of this.agents) {
+      try {
+        const response = await axios.get(`${agent.url}/health`, {
+          timeout: 5000
+        });
+        
+        agent.healthy = response.status === 200;
+        agent.lastHealthCheck = new Date();
+      } catch (error) {
+        agent.healthy = false;
+        console.warn(`Agent ${agentId} health check failed`);
+      }
+    }
+  }
+}
+
+// Meta Agent 초기화
+const registry = new AgentRegistry();
+await registry.register('http://localhost:8080');  // Family-Config
+await registry.register('http://localhost:8081');  // Work-Config (미래)
+
+// Health check 스케줄링
+setInterval(() => registry.healthCheck(), 60000);  // 1분마다
+#+end_src
+
+**** 도메인 라우팅
+
+#+begin_src typescript
+// claude-config/src/domain-router.ts
+class DomainRouter {
+  constructor(private registry: AgentRegistry) {}
+  
+  async route(userRequest: string): Promise<any> {
+    // 1. Intent 분석
+    const intent = await this.analyzeIntent(userRequest);
+    
+    // 2. Capability 결정
+    const capability = this.mapIntentToCapability(intent);
+    
+    // 3. Agent 검색
+    const agent = this.registry.findAgentByCapability(capability);
+    
+    if (!agent) {
+      throw new Error(`No agent found for capability: ${capability}`);
+    }
+    
+    // 4. Task 위임
+    const client = new A2AClient(agent.url);
+    const { taskId } = await client.createTask(
+      capability,
+      intent.parameters,
+      intent.preferences
+    );
+    
+    // 5. 완료 대기
+    const result = await client.waitForCompletion(taskId);
+    
+    return result;
+  }
+  
+  private async analyzeIntent(userRequest: string) {
+    // Claude API로 intent 분석
+    // "여름에 제주도 가족 여행 계획" →
+    // {
+    //   domain: "family",
+    //   taskType: "travel",
+    //   action: "plan",
+    //   parameters: { destination: "제주도", ... }
+    // }
+  }
+  
+  private mapIntentToCapability(intent: any): string {
+    return `${intent.domain}.${intent.taskType}.${intent.action}`;
+    // → "family.travel.plan"
+  }
+}
+#+end_src
+
+** 🔄 완전한 흐름 예시
+
+*** 시나리오: 여행 계획
+
+#+begin_src
+[1] User (Emacs)
+    ↓ ACP: agent/execute
+    "여름에 제주도 가족 여행 계획 좀 도와줘"
+    
+[2] Meta Agent (Claude Code)
+    ↓ Intent Analysis
+    → domain: "family"
+    → capability: "family.travel.plan"
+    
+    ↓ Agent Discovery
+    → Registry에서 Family-Config Agent 찾기
+    → http://localhost:8080/agent-card 확인
+    
+    ↓ A2A: POST /tasks
+    {
+      taskId: "task_20251014_001",
+      capability: "family.travel.plan",
+      input: { destination: "제주도", ... }
+    }
+    
+[3] Family-Config Agent
+    ← A2A: 202 Accepted
+    
+    ↓ Task Processing (백그라운드)
+    
+    ↓ MCP: web_search (항공권)
+    ← 5개 옵션
+    
+    ↓ MCP: web_search (숙박)
+    ← 12개 옵션
+    
+    ↓ MCP: filesystem (과거 여행)
+    ← 2024년 부산 여행 데이터
+    
+    ↓ MCP: write_file (Org 파일 생성)
+    ← ~/org/family/travel/20250720-jeju.org
+    
+    ↓ MCP: calendar (Google Calendar)
+    ← Event created
+    
+    ↓ A2A: Task completed
+    
+[4] Meta Agent (Polling)
+    ← A2A: GET /tasks/{id}
+    ← status: completed
+    
+    ↓ Result Integration
+    
+    ↓ ACP: Result to Emacs
+    
+[5] User (Emacs)
+    ← "여행 계획이 완성되었습니다!"
+    ← File opened: ~/org/family/travel/20250720-jeju.org
+#+end_src
+
+** 🛠️ 구현 로드맵
+
+*** Phase 1: MCP 통합 (현재)
+
+- [X] Family-Config 템플릿 구축
+- [ ] MCP 클라이언트 구현
+  - [ ] web_search 연동
+  - [ ] filesystem 연동
+  - [ ] calendar 연동
+- [ ] 단일 작업 실행 (수동)
+
+*** Phase 2: A2A 서버 구현 (2025 Q4)
+
+- [ ] Agent Card 정의
+- [ ] A2A Server 기본 구조
+  - [ ] Express/Fastapi 서버
+  - [ ] Task 관리 (CRUD)
+  - [ ] 비동기 처리
+- [ ] 1개 capability 구현 (travel.plan)
+- [ ] 로컬 테스트
+
+*** Phase 3: Meta Agent 통합 (2026 Q1)
+
+- [ ] A2A Client 구현
+- [ ] Agent Registry
+- [ ] Domain Router
+- [ ] Intent Analysis
+- [ ] End-to-end 테스트
+
+*** Phase 4: 확장 (2026 Q2+)
+
+- [ ] 추가 capabilities (finance, education, events)
+- [ ] Work-Config Agent 추가
+- [ ] Health-Config Agent 추가
+- [ ] 분산 실행 (여러 머신)
+- [ ] 모니터링 & 로깅
+
+** 📊 기술 스택
+
+*** Family-Config Agent (A2A Server)
+
+#+begin_src yaml
+Runtime: Node.js 20+ / Python 3.11+
+언어: TypeScript / Python
+웹 프레임워크: Express / FastAPI
+프로토콜: A2A (JSON-RPC 2.0)
+클라이언트: MCP SDK
+데이터: Org-mode files (Git)
+포트: 8080
+#+end_src
+
+*** Meta Agent (A2A Client)
+
+#+begin_src yaml
+기존: Claude Code (Anthropic)
+확장: A2A Client 모듈
+프로토콜: 
+  - ACP (사용자 통신)
+  - A2A (도메인 에이전트 통신)
+#+end_src
+
+*** MCP Tools
+
+#+begin_src yaml
+기존 MCP 서버 활용:
+- mcp__web_search
+- mcp__n8n
+- mcp__playwright
+- mcp__git
+- mcp__supabase
+
+신규 구현 필요:
+- mcp__google_calendar
+- mcp__filesystem (enhanced)
+#+end_src
+
+** 🔗 참고 문서
+
+- [[file:protocol-standards-analysis.org][Protocol Standards Analysis]]
+- [[file:delegation-protocol.org][Delegation Protocol]]
+- [[file:~/repos/gh/family-config/FAMILY.md][FAMILY.md]]
+- [[file:../README.org][Meta-Config README]]
+
+** 📝 라이선스
+
+MIT License
+
+---
+
+**상태**: 🛠️ DESIGN → IMPLEMENTATION  
+**다음 단계**: A2A Server 프로토타입 구현

@@ -1,0 +1,692 @@
+{
+  "$schema": "https://a2aprotocol.ai/schemas/agent-card/v1.0.0",
+  "agentId": "family-config-agent",
+  "version": "1.0.0",
+  "name": "Family Life Management Agent",
+  "description": "AI agent for managing family life: travel, finance, education, childcare, events, and calendar integration",
+  
+  "author": {
+    "name": "Junghan Kim",
+    "email": "junghanacs@gmail.com",
+    "url": "https://notes.junghanacs.com",
+    "github": "https://github.com/junghan0611/family-config"
+  },
+  
+  "license": "MIT",
+  "homepage": "https://github.com/junghan0611/family-config",
+  "documentation": "https://github.com/junghan0611/family-config/blob/main/FAMILY.md",
+  
+  "capabilities": [
+    {
+      "id": "family.travel.plan",
+      "name": "Travel Planning",
+      "description": "Plan family trips with budget optimization, MCP-powered research, and actionable itineraries",
+      "version": "1.0.0",
+      "category": "planning",
+      "tags": ["travel", "family", "budget", "planning", "vacation"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "Travel destination (city, region, or country)",
+            "examples": ["제주도", "부산", "제주", "도쿄"]
+          },
+          "dates": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "string",
+                "format": "date",
+                "description": "Start date (YYYY-MM-DD)"
+              },
+              "end": {
+                "type": "string",
+                "format": "date",
+                "description": "End date (YYYY-MM-DD)"
+              }
+            },
+            "required": ["start", "end"]
+          },
+          "budget": {
+            "type": "number",
+            "description": "Total budget in KRW",
+            "minimum": 100000,
+            "examples": [3000000, 5000000]
+          },
+          "participants": {
+            "type": "array",
+            "description": "Family members participating",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "enum": ["dad", "mom", "child", "infant", "grandparent"],
+                  "description": "Family role"
+                },
+                "age": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 120,
+                  "description": "Age in years"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Optional name"
+                },
+                "specialNeeds": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Special requirements (wheelchair, dietary, medical)"
+                }
+              },
+              "required": ["role"]
+            },
+            "minItems": 1
+          },
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "accommodationType": {
+                "type": "string",
+                "enum": ["호텔", "리조트", "펜션", "에어비앤비", "캠핑"],
+                "description": "Preferred accommodation type"
+              },
+              "activities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["자연 체험", "문화 관광", "해수욕", "테마파크", "쇼핑", "음식 투어"]
+                },
+                "description": "Preferred activities"
+              },
+              "dietaryRestrictions": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "transportationMode": {
+                "type": "string",
+                "enum": ["항공", "기차", "자동차", "배"],
+                "default": "항공"
+              }
+            }
+          }
+        },
+        "required": ["destination", "dates", "budget", "participants"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Path to generated Org-mode file"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "totalCost": { "type": "number" },
+              "withinBudget": { "type": "boolean" },
+              "budgetUsagePercent": { "type": "number" },
+              "flightsFound": { "type": "number" },
+              "flightsBestPrice": { "type": "number" },
+              "accommodationsFound": { "type": "number" },
+              "accommodationsRecommended": { "type": "string" },
+              "activitiesPlanned": { "type": "number" },
+              "daysPlanned": { "type": "number" }
+            }
+          },
+          "nextActions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": { "type": "string" },
+                "priority": {
+                  "type": "string",
+                  "enum": ["low", "normal", "high", "urgent"]
+                },
+                "deadline": { "type": "string", "format": "date-time" },
+                "estimatedCost": { "type": "number" },
+                "requiresApproval": { "type": "boolean" }
+              }
+            }
+          },
+          "alternatives": {
+            "type": "array",
+            "description": "Alternative options with different price points",
+            "items": {
+              "type": "object",
+              "properties": {
+                "optionId": { "type": "string" },
+                "description": { "type": "string" },
+                "totalCost": { "type": "number" },
+                "pros": { "type": "array", "items": { "type": "string" } },
+                "cons": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "required": ["filePath", "summary", "nextActions"]
+      },
+      
+      "estimatedDuration": 45,
+      "requiresHumanApproval": false,
+      "mcpToolsUsed": ["web_search", "calendar", "filesystem"],
+      
+      "examples": [
+        {
+          "input": {
+            "destination": "제주도",
+            "dates": { "start": "2025-07-20", "end": "2025-07-27" },
+            "budget": 3000000,
+            "participants": [
+              { "role": "dad" },
+              { "role": "mom" },
+              { "role": "child", "age": 8 },
+              { "role": "child", "age": 5 }
+            ]
+          },
+          "output": {
+            "filePath": "~/org/family/travel/20250720-jeju.org",
+            "summary": {
+              "totalCost": 2850000,
+              "withinBudget": true
+            }
+          }
+        }
+      ]
+    },
+    
+    {
+      "id": "family.travel.track",
+      "name": "Travel Expense Tracking",
+      "description": "Track expenses during travel and update budget in real-time",
+      "version": "1.0.0",
+      "category": "tracking",
+      "tags": ["travel", "expenses", "budget", "ledger"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tripId": { "type": "string" },
+          "expenses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string", "format": "date" },
+                "category": {
+                  "type": "string",
+                  "enum": ["food", "transportation", "accommodation", "activities", "shopping", "other"]
+                },
+                "amount": { "type": "number" },
+                "description": { "type": "string" },
+                "location": { "type": "string" }
+              },
+              "required": ["date", "category", "amount"]
+            }
+          }
+        },
+        "required": ["tripId", "expenses"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ledgerUpdated": { "type": "boolean" },
+          "totalSpent": { "type": "number" },
+          "remainingBudget": { "type": "number" },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      
+      "estimatedDuration": 5,
+      "mcpToolsUsed": ["filesystem"]
+    },
+    
+    {
+      "id": "family.events.remind",
+      "name": "Event Reminders",
+      "description": "Track and remind family events (birthdays, ceremonies, anniversaries)",
+      "version": "1.0.0",
+      "category": "monitoring",
+      "tags": ["events", "reminders", "ceremonies", "birthdays"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lookAheadDays": {
+            "type": "number",
+            "default": 7,
+            "minimum": 1,
+            "maximum": 365,
+            "description": "How many days to look ahead"
+          },
+          "eventTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["birthday", "anniversary", "wedding", "funeral", "holiday"]
+            },
+            "description": "Filter by event types"
+          }
+        }
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "upcomingEvents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string", "format": "date" },
+                "daysUntil": { "type": "number" },
+                "type": { "type": "string" },
+                "person": { "type": "string" },
+                "relation": { "type": "string" },
+                "suggestedGiftAmount": { "type": "number" },
+                "pastGifts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "year": { "type": "number" },
+                      "amount": { "type": "number" },
+                      "note": { "type": "string" }
+                    }
+                  }
+                },
+                "actionRequired": { "type": "boolean" }
+              }
+            }
+          },
+          "totalEventsFound": { "type": "number" }
+        }
+      },
+      
+      "estimatedDuration": 5,
+      "requiresHumanApproval": false,
+      "mcpToolsUsed": ["filesystem", "calendar"]
+    },
+    
+    {
+      "id": "family.finance.track",
+      "name": "Finance Tracking",
+      "description": "Track family expenses, generate budget reports, and alert on overspending",
+      "version": "1.0.0",
+      "category": "tracking",
+      "tags": ["finance", "budget", "expenses", "ledger", "reporting"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "enum": ["daily", "weekly", "monthly", "yearly"],
+            "description": "Report period"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Optional custom start date"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Optional custom end date"
+          },
+          "category": {
+            "type": "string",
+            "enum": ["all", "food", "housing", "transportation", "education", "healthcare", "entertainment", "other"],
+            "default": "all"
+          }
+        },
+        "required": ["period"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "report": {
+            "type": "string",
+            "description": "Ledger report output"
+          },
+          "totalSpent": { "type": "number" },
+          "totalBudget": { "type": "number" },
+          "budgetStatus": {
+            "type": "string",
+            "enum": ["safe", "warning", "danger", "exceeded"]
+          },
+          "categoryBreakdown": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "spent": { "type": "number" },
+                "budget": { "type": "number" },
+                "percentage": { "type": "number" }
+              }
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "recommendations": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      
+      "estimatedDuration": 10,
+      "requiresHumanApproval": false,
+      "mcpToolsUsed": ["filesystem", "supabase"]
+    },
+    
+    {
+      "id": "family.finance.budget",
+      "name": "Budget Planning",
+      "description": "Create and manage family budgets with AI-powered recommendations",
+      "version": "1.0.0",
+      "category": "planning",
+      "tags": ["finance", "budget", "planning"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "string",
+            "enum": ["monthly", "quarterly", "yearly"]
+          },
+          "totalIncome": { "type": "number" },
+          "fixedExpenses": {
+            "type": "object",
+            "description": "Known fixed expenses",
+            "additionalProperties": { "type": "number" }
+          },
+          "goals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "targetAmount": { "type": "number" },
+                "deadline": { "type": "string", "format": "date" }
+              }
+            }
+          }
+        },
+        "required": ["period", "totalIncome"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "budgetPlan": { "type": "string" },
+          "recommendations": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "categoryAllocations": {
+            "type": "object",
+            "additionalProperties": { "type": "number" }
+          }
+        }
+      },
+      
+      "estimatedDuration": 15,
+      "mcpToolsUsed": ["filesystem", "web_search"]
+    },
+    
+    {
+      "id": "family.education.schedule",
+      "name": "Education Scheduling",
+      "description": "Manage children's education schedules, track progress, and sync with calendar",
+      "version": "1.0.0",
+      "category": "planning",
+      "tags": ["education", "schedule", "children", "tracking"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "child": {
+            "type": "string",
+            "description": "Child identifier (child1, child2, or name)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Subject or activity"
+          },
+          "dateRange": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date" },
+              "end": { "type": "string", "format": "date" }
+            }
+          },
+          "includeConflicts": {
+            "type": "boolean",
+            "default": true,
+            "description": "Check for schedule conflicts"
+          }
+        },
+        "required": ["child"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "schedule": { "type": "string" },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string" },
+                "conflictWith": { "type": "string" }
+              }
+            }
+          },
+          "calendarSynced": { "type": "boolean" },
+          "recommendations": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      
+      "estimatedDuration": 15,
+      "mcpToolsUsed": ["filesystem", "calendar"]
+    },
+    
+    {
+      "id": "family.childcare.routine",
+      "name": "Childcare Routine Management",
+      "description": "Manage daily childcare routines, health tracking, and reminders",
+      "version": "1.0.0",
+      "category": "management",
+      "tags": ["childcare", "routine", "health", "children"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "child": { "type": "string" },
+          "routineType": {
+            "type": "string",
+            "enum": ["morning", "bedtime", "meal", "health_check"]
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "update", "check", "remind"]
+          }
+        },
+        "required": ["child", "routineType", "action"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "routine": { "type": "string" },
+          "checklist": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "healthAlerts": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      
+      "estimatedDuration": 5,
+      "mcpToolsUsed": ["filesystem"]
+    },
+    
+    {
+      "id": "family.calendar.sync",
+      "name": "Calendar Synchronization",
+      "description": "Sync all family activities to Google Calendar with conflict detection",
+      "version": "1.0.0",
+      "category": "integration",
+      "tags": ["calendar", "sync", "google", "integration"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Source to sync (travel, education, events, all)"
+          },
+          "resolveConflicts": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": ["source"]
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "eventsSynced": { "type": "number" },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string" },
+                "events": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          },
+          "calendarUrl": { "type": "string" }
+        }
+      },
+      
+      "estimatedDuration": 10,
+      "mcpToolsUsed": ["filesystem", "calendar"]
+    },
+    
+    {
+      "id": "family.daily.brief",
+      "name": "Daily Family Brief",
+      "description": "Generate daily family brief: schedule, budget status, reminders",
+      "version": "1.0.0",
+      "category": "reporting",
+      "tags": ["daily", "brief", "report", "summary"],
+      
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Date for brief (defaults to today)"
+          },
+          "includeWeather": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "brief": { "type": "string" },
+          "schedule": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "time": { "type": "string" },
+                "event": { "type": "string" },
+                "person": { "type": "string" }
+              }
+            }
+          },
+          "budgetStatus": { "type": "string" },
+          "reminders": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "weather": { "type": "object" }
+        }
+      },
+      
+      "estimatedDuration": 5,
+      "mcpToolsUsed": ["filesystem", "calendar", "web_search"]
+    }
+  ],
+  
+  "supportedModalities": ["text", "markdown", "json", "org-mode"],
+  
+  "authentication": {
+    "type": "none",
+    "description": "No authentication required for personal use. Bearer token optional for security."
+  },
+  
+  "rateLimit": {
+    "requestsPerMinute": 10,
+    "concurrentTasks": 3,
+    "maxTaskDuration": 300,
+    "burstSize": 5
+  },
+  
+  "endpoints": {
+    "agentCard": "http://localhost:8080/agent-card",
+    "createTask": "http://localhost:8080/tasks",
+    "getTask": "http://localhost:8080/tasks/{taskId}",
+    "listTasks": "http://localhost:8080/tasks",
+    "cancelTask": "http://localhost:8080/tasks/{taskId}",
+    "healthCheck": "http://localhost:8080/health"
+  },
+  
+  "healthCheck": {
+    "url": "http://localhost:8080/health",
+    "interval": 60,
+    "timeout": 5
+  },
+  
+  "metadata": {
+    "platform": "Node.js",
+    "framework": "Express",
+    "language": "TypeScript",
+    "dependencies": {
+      "mcp": "@modelcontextprotocol/sdk",
+      "a2a": "JSON-RPC 2.0 native"
+    },
+    "storageBackend": "Org-mode files + Git",
+    "dataLocation": "~/org/family/",
+    "configLocation": "~/repos/gh/family-config/"
+  }
+}

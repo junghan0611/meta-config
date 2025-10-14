@@ -1,0 +1,489 @@
+#+title:      Delegation Protocol: Agent 간 위임 프로토콜
+#+date:       [2025-10-14 Mon 13:40]
+#+filetags:   :meta:agent:protocol:delegation:
+#+identifier: 20251014T134000
+#+export_file_name: 20251014T134000-delegation-protocol.md
+
+* Delegation Protocol: Agent 간 위임 프로토콜
+
+**버전**: 1.0.0  
+**상태**: 🔬 DRAFT  
+**업데이트**: 2025-10-14
+
+#+begin_quote
+"Clear contracts between agents enable autonomous collaboration"
+"명확한 계약은 자율적 협업을 가능하게 한다"
+#+end_quote
+
+** 🎯 프로토콜 개요
+
+*** 목적
+
+Meta Agent와 Domain Agent 간의 통신을 표준화하여:
+- 명확한 책임 분리
+- 타입 안전성 보장
+- 에러 처리 일관성
+- 확장 가능한 아키텍처
+- 독립적 에이전트 개발
+
+*** 핵심 원칙
+
+1. **Explicit > Implicit**: 모든 것을 명시적으로 정의
+2. **Typed**: YAML 스키마로 타입 보장
+3. **Versioned**: 프로토콜 버전 관리
+4. **Asynchronous**: 비동기 작업 지원
+5. **Idempotent**: 동일 요청은 동일 결과
+6. **Traceable**: 모든 작업 추적 가능
+
+*** 통신 흐름
+
+#+begin_src
+[Meta Agent]
+      ↓ 1. Delegation Request
+[Domain Agent]
+      ↓ 2. Acknowledgment (즉시)
+      ↓ 3. Processing...
+      ↓ 4. Progress Updates (선택)
+      ↓ 5. Delegation Response
+[Meta Agent]
+      ↓ 6. Result Integration
+[User]
+#+end_src
+
+** 📋 메시지 형식
+
+*** 1. Delegation Request (위임 요청)
+
+**** 기본 구조
+
+#+begin_src yaml
+delegation:
+  # === 메타데이터 ===
+  version: "1.0.0"              # 프로토콜 버전
+  request_id: "req_20251014_001"  # 고유 요청 ID
+  timestamp: "2025-10-14T13:40:00+09:00"  # 요청 시각
+  
+  # === 에이전트 정보 ===
+  source:
+    agent: "meta-agent"
+    version: "3.2.0"
+    instance_id: "meta_001"
+  
+  target:
+    agent: "family-config"      # 대상 에이전트
+    version: "1.0.0"            # 호환 버전
+    instance_id: null           # null = 새 인스턴스
+  
+  # === 작업 정의 ===
+  task:
+    type: "family.travel.plan"  # 작업 타입 (네임스페이스)
+    priority: "high"            # low | normal | high | urgent
+    deadline: "2025-04-30T23:59:59+09:00"  # 선택적
+    timeout: 300                # 초 단위 (null = 무제한)
+    
+    # 작업 컨텍스트
+    context:
+      destination: "제주도"
+      start_date: "2025-07-20"
+      end_date: "2025-07-27"
+      budget: 3000000
+      participants:
+        - role: "dad"
+          name: "김정한"
+        - role: "mom"
+          name: "박지연"
+        - role: "child1"
+          age: 8
+          special_needs: []
+        - role: "child2"
+          age: 5
+          special_needs: []
+    
+    # 작업 선호도
+    preferences:
+      accommodation_type: "가족 친화적 리조트"
+      activities: ["자연 체험", "문화 관광", "해수욕"]
+      dietary_restrictions: []
+      accessibility_required: false
+    
+    # 작업 제약사항
+    constraints:
+      must_have: ["주차 가능", "조식 포함"]
+      must_not_have: ["흡연 시설"]
+      budget_hard_limit: true   # true = 초과 불가
+  
+  # === 출력 요구사항 ===
+  output:
+    format: "org_file"          # org_file | json | yaml
+    location: "~/org/family/travel/"
+    filename_pattern: "{date}-{destination}.org"
+    include_metadata: true
+    include_alternatives: true  # 대안 옵션 포함
+    
+  # === 알림 설정 ===
+  notifications:
+    on_start: true              # 시작 시 알림
+    on_progress: true           # 진행 중 업데이트
+    on_complete: true           # 완료 시 알림
+    on_error: true              # 에러 시 알림
+    
+  # === 의존성 ===
+  dependencies:                 # 선택적
+    requires:                   # 필요한 데이터/서비스
+      - "google_calendar_access"
+      - "travel_budget_approved"
+    blocks: []                  # 이 작업이 차단하는 것
+    blocked_by: []              # 이 작업을 차단하는 것
+#+end_src
+
+**** 필수 필드
+
+최소 요구사항:
+#+begin_src yaml
+delegation:
+  version: "1.0.0"
+  request_id: "unique_id"
+  target:
+    agent: "domain-agent"
+  task:
+    type: "domain.action.verb"
+#+end_src
+
+*** 2. Acknowledgment (수신 확인)
+
+Domain Agent가 요청을 받았음을 즉시 확인:
+
+#+begin_src yaml
+acknowledgment:
+  request_id: "req_20251014_001"
+  status: "accepted"            # accepted | rejected
+  estimated_duration: 45        # 초 단위 예상 시간
+  agent_instance_id: "family_001"
+  message: "Travel planning task accepted"
+  
+  # rejected인 경우
+  rejection_reason: null        # "unsupported_task_type" | "resource_unavailable" | ...
+#+end_src
+
+*** 3. Progress Update (진행 상황)
+
+장기 실행 작업의 경우 주기적으로 업데이트:
+
+#+begin_src yaml
+progress:
+  request_id: "req_20251014_001"
+  timestamp: "2025-10-14T13:40:30+09:00"
+  status: "in_progress"
+  percent_complete: 60          # 0-100
+  current_step: "searching_accommodations"
+  steps_completed: ["flights_searched", "budget_calculated"]
+  steps_remaining: ["activities_planned", "itinerary_generated"]
+  
+  message: "Found 12 accommodation options, filtering..."
+  
+  # 부분 결과 (선택적)
+  partial_results:
+    flights_found: 5
+    best_flight_price: 680000
+#+end_src
+
+*** 4. Delegation Response (위임 응답)
+
+작업 완료 후 최종 응답:
+
+#+begin_src yaml
+result:
+  # === 메타데이터 ===
+  request_id: "req_20251014_001"
+  response_id: "res_20251014_001"
+  timestamp: "2025-10-14T13:45:00+09:00"
+  agent_instance_id: "family_001"
+  
+  # === 상태 ===
+  status: "success"             # success | partial_success | failure
+  execution_time: 45            # 초
+  
+  # === 결과 출력 ===
+  output:
+    file_path: "~/org/family/travel/20250720-jeju.org"
+    format: "org"
+    size_bytes: 15420
+    checksum: "sha256:abc123..."
+    
+  # === 요약 ===
+  summary:
+    flights_found: 5
+    flights_best_price: 680000
+    accommodations_found: 12
+    accommodations_recommended: "힐튼 제주 리조트"
+    total_budget_estimated: 2850000
+    budget_status: "within_limit"  # within_limit | over_limit
+    days_planned: 7
+    activities_planned: 15
+    
+  # === 다음 액션 ===
+  next_actions:
+    - action: "book_flight"
+      priority: "high"
+      deadline: "2025-04-30T23:59:59+09:00"
+      estimated_cost: 680000
+      requires_approval: true
+    - action: "book_accommodation"
+      priority: "high"
+      deadline: "2025-05-15T23:59:59+09:00"
+      estimated_cost: 1400000
+      requires_approval: true
+    - action: "book_rental_car"
+      priority: "normal"
+      deadline: "2025-06-01T23:59:59+09:00"
+      estimated_cost: 420000
+      requires_approval: false
+  
+  # === 대안 옵션 (요청 시) ===
+  alternatives:
+    - option_id: "alt_001"
+      description: "저가 옵션 (호스텔)"
+      total_cost: 2100000
+      pros: ["저렴", "중심가 위치"]
+      cons: ["시설 낡음", "아이 친화적 아님"]
+    - option_id: "alt_002"
+      description: "럭셔리 옵션 (신라호텔)"
+      total_cost: 4500000
+      pros: ["최고급 시설", "키즈클럽"]
+      cons: ["예산 초과 50%"]
+  
+  # === 메타데이터 ===
+  metadata:
+    mcp_calls: 8                # MCP 도구 호출 횟수
+    mcp_tools_used: ["web_search", "calendar"]
+    tokens_used: 1200           # AI 토큰 사용량
+    templates_used: ["trip-planning.org"]
+    patterns_matched: ["jeju", "family-4", "summer"]
+    data_sources: ["google_flights", "booking.com", "airbnb"]
+  
+  # === 경고 및 권장사항 ===
+  warnings: []                  # 문제 없음
+  recommendations:
+    - "항공권은 지금 예약하면 20% 저렴합니다"
+    - "성수기이므로 숙박은 5월 전에 예약 권장"
+#+end_src
+
+*** 5. Error Response (에러 응답)
+
+작업 실패 시:
+
+#+begin_src yaml
+error:
+  request_id: "req_20251014_001"
+  error_id: "err_20251014_001"
+  timestamp: "2025-10-14T13:42:00+09:00"
+  
+  # === 에러 정보 ===
+  code: "E_MCP_TIMEOUT"         # 에러 코드 (아래 참조)
+  message: "MCP web_search tool timed out after 30s"
+  severity: "high"              # low | medium | high | critical
+  
+  # === 컨텍스트 ===
+  context:
+    task_type: "family.travel.plan"
+    current_step: "searching_flights"
+    progress_percent: 30
+  
+  # === 복구 가능성 ===
+  recoverable: true
+  retry_recommended: true
+  retry_after: 60               # 초 (재시도 권장 시간)
+  max_retries: 3
+  
+  # === 부분 결과 ===
+  partial_results:
+    completed_steps: ["budget_calculated"]
+    available_data:
+      budget_breakdown: "~/tmp/budget_001.json"
+  
+  # === 에러 세부사항 ===
+  details:
+    mcp_tool: "web_search"
+    query: "flights to jeju 2025-07-20"
+    timeout: 30
+    attempts: 2
+  
+  # === 제안 ===
+  suggestions:
+    - "네트워크 연결 확인 필요"
+    - "MCP timeout 설정을 60초로 증가 권장"
+    - "대체 데이터 소스 사용 가능 (항공사 직접 조회)"
+#+end_src
+
+** 🔢 상태 코드
+
+*** Success 코드 (2xx)
+
+| 코드 | 이름 | 설명 |
+|------|------|------|
+| 200 | SUCCESS | 작업 완료 |
+| 201 | PARTIAL_SUCCESS | 일부만 완료 |
+| 202 | ACCEPTED | 작업 수락됨 (비동기) |
+
+*** Client Error (4xx)
+
+| 코드 | 이름 | 설명 |
+|------|------|------|
+| 400 | INVALID_REQUEST | 잘못된 요청 형식 |
+| 404 | TASK_NOT_FOUND | 지원하지 않는 작업 타입 |
+| 408 | TIMEOUT | 작업 타임아웃 |
+| 409 | CONFLICT | 충돌하는 작업 존재 |
+
+*** Server Error (5xx)
+
+| 코드 | 이름 | 설명 |
+|------|------|------|
+| 500 | INTERNAL_ERROR | 내부 오류 |
+| 503 | UNAVAILABLE | 서비스 이용 불가 |
+| 504 | MCP_TIMEOUT | MCP 도구 타임아웃 |
+
+** 🔄 비동기 작업 처리
+
+*** Long-Running Tasks
+
+장기 실행 작업은 즉시 수락하고 백그라운드에서 실행:
+
+#+begin_src
+1. Request → Acknowledgment (즉시, <1초)
+2. Progress Updates (주기적, 10-30초마다)
+3. Final Response (완료 시)
+#+end_src
+
+*** Polling vs Push
+
+*Polling* (Meta Agent가 상태 조회):
+#+begin_src yaml
+status_query:
+  request_id: "req_20251014_001"
+#+end_src
+
+*Push* (Domain Agent가 자동 업데이트):
+#+begin_src yaml
+# Progress update (자동 전송)
+progress:
+  request_id: "req_20251014_001"
+  percent_complete: 75
+#+end_src
+
+** 🛡️ 에러 처리
+
+*** Retry 전략
+
+#+begin_src yaml
+retry_policy:
+  max_attempts: 3
+  backoff: "exponential"        # linear | exponential
+  initial_delay: 5              # 초
+  max_delay: 60                 # 초
+  retry_on_codes: [408, 503, 504]
+#+end_src
+
+*** Circuit Breaker
+
+연속 실패 시 일시적으로 요청 차단:
+
+#+begin_src yaml
+circuit_breaker:
+  failure_threshold: 5          # 연속 5회 실패
+  timeout: 300                  # 5분 동안 차단
+  half_open_requests: 1         # 테스트 요청 1개 허용
+#+end_src
+
+** 🔐 보안 및 인증
+
+*** Agent Identity
+
+각 에이전트는 고유 식별자:
+
+#+begin_src yaml
+agent_identity:
+  agent_id: "family-config-001"
+  agent_type: "family-config"
+  version: "1.0.0"
+  certificate: "-----BEGIN CERTIFICATE-----..."  # 선택적
+#+end_src
+
+*** Authorization
+
+작업별 권한 확인:
+
+#+begin_src yaml
+authorization:
+  required_permissions:
+    - "family.travel.read"
+    - "family.travel.write"
+    - "mcp.web_search.execute"
+  granted_by: "meta-agent"
+  expires_at: "2025-10-15T00:00:00+09:00"
+#+end_src
+
+** 📊 성능 고려사항
+
+*** Timeouts
+
+| 작업 유형 | 권장 Timeout |
+|-----------|--------------|
+| 단순 조회 | 5-10초 |
+| 검색/분석 | 30-60초 |
+| 복잡한 계획 | 60-300초 |
+| 백그라운드 | 무제한 |
+
+*** Rate Limiting
+
+#+begin_src yaml
+rate_limit:
+  requests_per_minute: 10
+  concurrent_requests: 3
+  burst_size: 5
+#+end_src
+
+** 🧪 테스트 및 검증
+
+*** 요청 검증
+
+#+begin_src python
+def validate_delegation_request(request):
+    """Delegation request 유효성 검증"""
+    assert request['version'] == "1.0.0"
+    assert 'request_id' in request
+    assert 'target' in request
+    assert 'task' in request
+    assert 'type' in request['task']
+    # ...
+#+end_src
+
+*** Mock Agent
+
+테스트용 Mock Domain Agent:
+
+#+begin_src yaml
+mock_agent:
+  behavior: "success"           # success | failure | timeout | slow
+  delay: 2                      # 초
+  error_rate: 0.1               # 10% 에러 발생
+#+end_src
+
+** 🔗 참고 문서
+
+- [[file:task-types.org][Task Types: 작업 타입 정의]]
+- [[file:../schemas/delegation-request.yaml][delegation-request.yaml 스키마]]
+- [[file:../schemas/delegation-response.yaml][delegation-response.yaml 스키마]]
+- [[file:../README.org][Meta-Config: 계층적 에이전트 아키텍처]]
+
+** 📝 변경 이력
+
+*** v1.0.0 (2025-10-14)
+- Initial protocol definition
+- Request/Response 형식 정의
+- 에러 처리 표준화
+- 비동기 작업 지원
+
+---
+
+**상태**: 🔬 DRAFT - 피드백 환영  
+**다음 단계**: 실제 구현 및 검증
