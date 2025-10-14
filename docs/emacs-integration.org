@@ -1,0 +1,582 @@
+#+title:      Emacs Integration: acp.el과 계층적 에이전트
+#+date:       [2025-10-14 Mon 14:20]
+#+filetags:   :meta:emacs:acp:integration:
+#+identifier: 20251014T142000
+#+export_file_name: 20251014T142000-emacs-integration.md
+
+* Emacs Integration: acp.el과 계층적 에이전트
+
+**버전**: 1.0.0  
+**상태**: 🔬 RESEARCH  
+**업데이트**: 2025-10-14
+
+#+begin_quote
+"JSON-RPC 2.0 all the way down: From Emacs to External Services"
+"Emacs에서 외부 서비스까지, 모든 레이어가 JSON-RPC 2.0"
+#+end_quote
+
+** 🎯 핵심 발견
+
+*** acp.el by xenodium
+
+- **작성자**: Álvaro Ramírez (xenodium)
+- **URL**: https://xenodium.com/introducing-acpel
+- **GitHub**: https://github.com/xenodium/acp.el
+- **목적**: Emacs에서 ACP (Agent Client Protocol) 클라이언트 구현
+- **상태**: 초기 단계 (개념 검증)
+
+*** 왜 중요한가?
+
+사용자 (junghanacs)가 이미 사용 중:
+- Emacs (acp.el) ↔ Claude Code
+- Emacs (agent-shell) ↔ Gemini CLI
+- *acp traffic* 버퍼로 JSON 트래픽 실시간 확인
+
+→ 우리의 계층적 에이전트 아키텍처와 **완벽하게 일치**!
+
+** 🏗️ 완전한 프로토콜 스택
+
+*** 통합 아키텍처
+
+#+begin_src
+┌─────────────────────────────────────────────────┐
+│  Emacs (Human Intelligence)                     │
+│  - acp.el (ACP Client)                         │
+│  - agent-shell.el (UI)                         │
+│  - *acp traffic* buffer (JSON 로깅)            │
+└─────────────────────────────────────────────────┘
+                     ↕ ACP (JSON-RPC 2.0)
+                       stdio / TCP:5000
+┌─────────────────────────────────────────────────┐
+│  Meta Agent                                     │
+│  - Claude Code (via ACP)                        │
+│  - Gemini CLI (via ACP)                        │
+│  - Intent Recognition                           │
+│  - Domain Routing                               │
+│  - Agent Registry                               │
+└─────────────────────────────────────────────────┘
+                     ↕ A2A (JSON-RPC 2.0)
+                       HTTP:8080-8089
+┌─────────────────────────────────────────────────┐
+│  Domain Agents (A2A Servers)                    │
+│  - Family-Config Agent (Port 8080)             │
+│  - Work-Config Agent (Port 8081) [미래]        │
+│  - Health-Config Agent (Port 8082) [미래]      │
+│  각각 Agent Card로 능력 광고                     │
+└─────────────────────────────────────────────────┘
+                     ↕ MCP (JSON-RPC 2.0)
+                       stdio / HTTP
+┌─────────────────────────────────────────────────┐
+│  MCP Tools                                      │
+│  - mcp__web_search                             │
+│  - mcp__calendar                               │
+│  - mcp__filesystem                             │
+│  - mcp__n8n                                    │
+│  - mcp__playwright                             │
+└─────────────────────────────────────────────────┘
+                     ↕ HTTP/APIs
+┌─────────────────────────────────────────────────┐
+│  External Services                              │
+│  - Google (Calendar, Flights, Drive)           │
+│  - Booking.com, Airlines, Banks...             │
+└─────────────────────────────────────────────────┘
+#+end_src
+
+*** 핵심 통찰
+
+모든 레이어가 **JSON-RPC 2.0** 기반:
+- ✅ 일관된 통신 방식
+- ✅ 디버깅 용이 (*acp traffic* 같은 로깅 버퍼)
+- ✅ 언어 중립적 (Emacs Lisp, TypeScript, Python...)
+- ✅ 성숙한 표준 (풍부한 라이브러리)
+
+** 🔧 Emacs 설정
+
+*** acp.el 기본 설정
+
+#+begin_src elisp
+;; ~/.doom.d/config.el or ~/.emacs.d/init.el
+
+;; 1. acp.el 설치 (아직 MELPA에 없음, 수동 설치)
+;; git clone https://github.com/xenodium/acp.el ~/.emacs.d/lisp/acp
+
+(add-to-list 'load-path "~/.emacs.d/lisp/acp")
+(require 'acp)
+
+;; 2. Logging 활성화 (개발 중에는 필수!)
+(setq acp-logging-enabled t)
+
+;; 3. Claude Code 클라이언트 생성
+(defvar my-claude-client nil
+  "Claude Code ACP client")
+
+(setq my-claude-client
+      (acp-make-client
+       :command "claude"
+       :command-params '("code")
+       :environment-variables (list
+                               (format "ANTHROPIC_API_KEY=%s" 
+                                       (getenv "ANTHROPIC_API_KEY")))))
+
+;; 4. Initialize 요청
+(acp-send-request
+ :client my-claude-client
+ :request (acp-make-initialize-request :protocol-version 1)
+ :on-success (lambda (response)
+               (message "Claude Code initialized: %s" response))
+ :on-failure (lambda (error)
+               (message "Initialization failed: %s" error)))
+#+end_src
+
+*** *acp traffic* 버퍼 활용
+
+#+begin_src elisp
+;; *acp traffic* 버퍼를 열어서 JSON-RPC 메시지 확인
+
+;; 예시 트래픽:
+;; ─────────────────────────────────────────
+;; → Client to Agent (Initialize)
+;; {
+;;   "jsonrpc": "2.0",
+;;   "id": 1,
+;;   "method": "initialize",
+;;   "params": {
+;;     "protocolVersion": 1,
+;;     "capabilities": {...}
+;;   }
+;; }
+;; 
+;; ← Agent to Client (Response)
+;; {
+;;   "jsonrpc": "2.0",
+;;   "id": 1,
+;;   "result": {
+;;     "protocolVersion": 1,
+;;     "capabilities": {...}
+;;   }
+;; }
+;; ─────────────────────────────────────────
+#+end_src
+
+** 🔄 완전한 JSON-RPC 흐름
+
+*** 시나리오: Emacs에서 여행 계획
+
+**** 1. ACP: Emacs → Claude Code
+
+#+begin_src elisp
+;; Emacs에서 실행
+(acp-send-request
+ :client my-claude-client
+ :request (acp-make-execute-request
+           :task "여름에 제주도 가족 여행 계획 좀 도와줘"
+           :context (list
+                     :working-directory "/home/junghan/org/family"
+                     :open-files '("travel/plans.org")))
+ :on-success (lambda (response)
+               (message "Task result: %s" (plist-get response :result)))
+ :on-failure (lambda (error)
+               (message "Task failed: %s" error)))
+#+end_src
+
+***acp traffic* 버퍼에 표시됨**:
+
+#+begin_src json
+→ Emacs to Claude Code
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "agent/execute",
+  "params": {
+    "task": "여름에 제주도 가족 여행 계획 좀 도와줘",
+    "context": {
+      "workingDirectory": "/home/junghan/org/family",
+      "openFiles": ["travel/plans.org"]
+    }
+  }
+}
+#+end_src
+
+**** 2. Meta Agent 내부 처리
+
+#+begin_src typescript
+// Claude Code 내부 (개념적)
+const intent = await analyzeIntent(task);
+// → domain: "family", capability: "family.travel.plan"
+
+const agent = registry.findAgent("family-config");
+// → http://localhost:8080
+
+// A2A로 위임
+const taskId = await a2aClient.createTask(
+  agent.url,
+  "family.travel.plan",
+  { destination: "제주도", ... }
+);
+#+end_src
+
+**** 3. A2A: Meta Agent → Family-Config Agent
+
+#+begin_src
+HTTP POST http://localhost:8080/tasks
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tasks/create",
+  "params": {
+    "taskId": "task_20251014_001",
+    "capability": "family.travel.plan",
+    "input": {
+      "destination": "제주도",
+      "dates": {...},
+      "budget": 3000000,
+      "participants": [...]
+    }
+  }
+}
+
+HTTP 202 Accepted
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "taskId": "task_20251014_001",
+    "status": "accepted",
+    "estimatedDuration": 45
+  }
+}
+#+end_src
+
+**** 4. MCP: Family-Config Agent → Tools
+
+#+begin_src typescript
+// Family-Config Agent 내부
+const mcpClient = new MCPClient();
+
+// 항공권 검색
+const flights = await mcpClient.request({
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "web_search",
+    "arguments": {
+      "query": "서울-제주 항공권 2025-07-20 왕복 4명"
+    }
+  }
+});
+
+// 결과: 5개 항공권 옵션
+#+end_src
+
+**** 5. A2A: Family-Config Agent → Meta Agent (결과)
+
+#+begin_src json
+HTTP GET http://localhost:8080/tasks/task_20251014_001
+
+HTTP 200 OK
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "taskId": "task_20251014_001",
+    "status": "completed",
+    "result": {
+      "filePath": "~/org/family/travel/20250720-jeju.org",
+      "summary": {
+        "totalCost": 2850000,
+        "withinBudget": true,
+        "flightsFound": 5
+      }
+    }
+  }
+}
+#+end_src
+
+**** 6. ACP: Claude Code → Emacs (최종 응답)
+
+***acp traffic* 버퍼에 표시됨**:
+
+#+begin_src json
+← Claude Code to Emacs
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "message": "제주도 여행 계획이 완성되었습니다!",
+    "files": [{
+      "path": "~/org/family/travel/20250720-jeju.org",
+      "action": "created"
+    }],
+    "summary": "총 예산 285만원 (목표 300만원 이내)\n항공권 5개 옵션 발견"
+  }
+}
+#+end_src
+
+**** 7. Emacs UI 업데이트
+
+#+begin_src elisp
+;; agent-shell 버퍼에 표시
+(insert "✅ 제주도 여행 계획이 완성되었습니다!\n")
+(insert "📁 파일: ~/org/family/travel/20250720-jeju.org\n")
+(insert "💰 총 예산: 285만원 (목표 300만원 이내)\n")
+
+;; 파일 자동 열기
+(find-file "~/org/family/travel/20250720-jeju.org")
+#+end_src
+
+** 📊 JSON-RPC 트래픽 가시성
+
+*** *acp traffic* 스타일 로깅
+
+각 레이어마다 트래픽 버퍼 구현 가능:
+
+**** Layer 5 → 4: *acp traffic*
+
+#+begin_src
+[2025-10-14 14:20:00] ACP Traffic Log
+─────────────────────────────────────────
+→ Emacs to Claude Code (method: agent/execute)
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "agent/execute",
+  "params": {...}
+}
+
+← Claude Code to Emacs (result)
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {...}
+}
+─────────────────────────────────────────
+#+end_src
+
+**** Layer 4 → 3: *a2a traffic*
+
+#+begin_src
+[2025-10-14 14:20:05] A2A Traffic Log
+─────────────────────────────────────────
+→ Meta Agent to Family-Config (POST /tasks)
+{
+  "taskId": "task_20251014_001",
+  "capability": "family.travel.plan",
+  "input": {...}
+}
+
+← Family-Config to Meta Agent (202 Accepted)
+{
+  "status": "accepted",
+  "estimatedDuration": 45
+}
+─────────────────────────────────────────
+#+end_src
+
+**** Layer 3 → 2: *mcp traffic*
+
+#+begin_src
+[2025-10-14 14:20:10] MCP Traffic Log
+─────────────────────────────────────────
+→ Family-Config to MCP (tools/call)
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "web_search",
+    "arguments": {
+      "query": "서울-제주 항공권 2025-07-20"
+    }
+  }
+}
+
+← MCP to Family-Config (result)
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [{
+      "type": "text",
+      "text": "Found 5 flights..."
+    }]
+  }
+}
+─────────────────────────────────────────
+#+end_src
+
+*** 통합 로깅 대시보드
+
+#+begin_src elisp
+;; Emacs에서 모든 레이어의 트래픽을 한눈에
+(defun family-config-show-traffic-dashboard ()
+  "Show all protocol traffic in split windows"
+  (interactive)
+  (delete-other-windows)
+  
+  ;; ACP traffic (Layer 5↔4)
+  (switch-to-buffer "*acp traffic*")
+  (split-window-right)
+  
+  ;; A2A traffic (Layer 4↔3)
+  (other-window 1)
+  (switch-to-buffer "*a2a traffic*")
+  (split-window-below)
+  
+  ;; MCP traffic (Layer 3↔2)
+  (other-window 1)
+  (switch-to-buffer "*mcp traffic*"))
+
+;; 사용: M-x family-config-show-traffic-dashboard
+#+end_src
+
+** 🚀 실제 사용 예시
+
+*** Emacs에서 Family-Config Agent 호출
+
+**** agent-shell에서 자연어로
+
+#+begin_src
+M-x agent-shell
+
+User: 여름에 제주도 가족 여행 계획 좀 도와줘
+
+[*acp traffic* 버퍼에 JSON-RPC 메시지 표시]
+
+Claude Code: 
+네, 가족 여행 계획을 도와드리겠습니다.
+Family-Config Agent에게 작업을 위임하고 있습니다...
+
+[*a2a traffic* 버퍼에 A2A 메시지 표시]
+
+Family-Config Agent:
+항공권 검색 중... (30%)
+숙박 검색 중... (60%)
+일정 생성 중... (90%)
+완료! (100%)
+
+[*mcp traffic* 버퍼에 MCP 호출 표시]
+
+Claude Code:
+제주도 여행 계획이 완성되었습니다!
+📁 ~/org/family/travel/20250720-jeju.org
+
+[파일 자동으로 열림]
+#+end_src
+
+**** 프로그래매틱 호출
+
+#+begin_src elisp
+;; custom Emacs command
+(defun my-plan-jeju-trip ()
+  "Plan Jeju trip using Family-Config Agent"
+  (interactive)
+  
+  ;; ACP로 Claude Code 호출
+  (acp-send-request
+   :client my-claude-client
+   :request (acp-make-execute-request
+             :task "제주도 여행 계획: 7월 20일-27일, 예산 300만원, 가족 4명"
+             :context (list
+                       :working-directory (expand-file-name "~/org/family")
+                       :embedded-context t))  ; Org 파일들을 컨텍스트로
+   :on-success (lambda (response)
+                 (let ((file-path (plist-get (plist-get response :result) :filePath)))
+                   (find-file file-path)
+                   (message "여행 계획 완성! %s" file-path)))
+   :on-failure (lambda (error)
+                 (message "실패: %s" (plist-get error :message)))))
+
+;; 사용: M-x my-plan-jeju-trip
+#+end_src
+
+** 🛠️ 구현 로드맵
+
+*** Phase 1: Emacs ACP 통합 (현재 - 검증됨!)
+
+- [X] acp.el 설치 (xenodium)
+- [X] agent-shell 설치 (xenodium)
+- [X] Claude Code 연동
+- [X] *acp traffic* 버퍼 활용
+- [ ] Gemini CLI 테스트
+- [ ] 커스텀 명령어 작성
+
+*** Phase 2: Family-Config A2A Server (2025 Q4)
+
+- [ ] A2A Server 구현 (TypeScript)
+- [ ] Agent Card 제공 (Port 8080)
+- [ ] Task 처리 구현
+- [ ] *a2a traffic* 로깅 구현
+- [ ] 로컬 테스트
+
+*** Phase 3: MCP 통합 (2025 Q4)
+
+- [ ] MCP Client 구현
+- [ ] web_search, calendar, filesystem 연동
+- [ ] *mcp traffic* 로깅 구현
+- [ ] End-to-end 테스트
+
+*** Phase 4: 전체 통합 (2026 Q1)
+
+- [ ] Emacs → Claude Code → Family-Config → MCP Tools
+- [ ] 3-layer traffic dashboard
+- [ ] 성능 최적화
+- [ ] 문서화 완성
+
+** 💡 핵심 인사이트
+
+*** "JSON-RPC 2.0 All the Way"
+
+모든 레이어가 동일한 프로토콜:
+- 학습 곡선 ↓
+- 디버깅 ↑
+- 툴링 재사용 ↑
+- 통일성 ↑
+
+*** "*traffic 버퍼" 패턴
+
+각 레이어마다 트래픽 로깅:
+- ~*acp traffic*~: ACP 메시지
+- ~*a2a traffic*~: A2A 메시지
+- ~*mcp traffic*~: MCP 메시지
+
+→ 전체 시스템 가시성 확보!
+
+*** "Standards-based Personal System"
+
+개인 프로젝트지만:
+- ✅ 업계 표준 준수 (ACP, A2A, MCP)
+- ✅ 프로덕션 품질 아키텍처
+- ✅ 확장 가능 (도메인 에이전트 추가)
+- ✅ 재사용 가능 (템플릿으로 배포)
+
+→ **기술적 참고 구현**으로서 가치
+
+** 🔗 관련 링크
+
+*** acp.el
+
+- 소개: https://xenodium.com/introducing-acpel
+- GitHub: https://github.com/xenodium/acp.el
+- agent-shell: https://github.com/xenodium/agent-shell
+
+*** ACP 표준
+
+- 사이트: https://agentclientprotocol.com
+- GitHub: https://github.com/zed-industries/agent-client-protocol
+- Zed 블로그: https://zed.dev/blog/bring-your-own-agent-to-zed
+
+*** 기타 프로토콜
+
+- MCP: https://modelcontextprotocol.io
+- A2A: https://a2aprotocol.ai
+
+** 🔗 참고 문서
+
+- [[file:protocol-standards-analysis.org][Protocol Standards Analysis]]
+- [[file:delegation-protocol.org][Delegation Protocol]]
+- [[file:implementation-architecture.org][Implementation Architecture]]
+- [[file:../README.org][Meta-Config README]]
+
+---
+
+**상태**: 🔬 RESEARCH → ✅ VALIDATED  
+**다음 단계**: A2A Server 프로토타입 구현
