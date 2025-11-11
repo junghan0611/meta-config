@@ -1,6 +1,30 @@
 # meta-config: 계층적 에이전트 아키텍처
 
-****상태****: 🔬 concept - 미래 비전 ****버전****: 0.1.0 ****업데이트****: 2025-10-14 ****저자****: junghan kim (junghanacs)
+**상태**: 🟢 active - 실제 구현 시작  
+**버전**: 0.2.0  
+**업데이트**: 2025-11-11  
+**저자**: Junghan Kim (junghanacs)
+
+> "Agents all the way down: from orchestration to specialization"  
+> "메타에서 도메인까지, 계층으로 조직된 지능"
+
+## ✨ 새소식 (2025-11-11)
+
+### ACP 통합 레이어 구현 완료
+- `emacs/agent-shell-config.el` - ACP + meta-config 통합
+- 디바이스 컨텍스트 인식 (LAPTOP/STORAGE-01/GPU-0X)
+- 토큰 사용량 실시간 추정 및 경고
+- Git 브랜치 자동 표시
+
+### 문서 체계 확립
+- `CLAUDE.md` - 에이전트용 간결한 지침
+- `docs/` - Denote 형식 기술 문서
+- `emacs/README.md` - 사용자 가이드
+
+**바로 사용하기**: [Quick Start](#quick-start)
+
+---
+
 
 > "agents all the way down: from orchestration to specialization" "메타에서 도메인까지, 계층으로 조직된 지능"
 
@@ -664,3 +688,34 @@ mit license
 —
 
 \*\*"the future is hierarchical, specialized, and collaborative."\*\* \*\*"미래는 계층적이고, 전문화되며, 협업한다."\*\*
+
+---
+
+## 🚀 Quick Start
+
+### 1. Emacs 통합 (5분)
+
+```elisp
+;; ~/.emacs.d/init.el 또는 ~/.doom.d/config.el
+(add-to-list 'load-path "~/repos/gh/meta-config/emacs/")
+(require 'agent-shell-config)
+```
+
+### 2. 디바이스 설정
+
+```bash
+echo "LAPTOP" > ~/.current-device
+# 또는 STORAGE-01, GPU-01, GPU-02, GPU-03
+```
+
+### 3. agent-shell 실행
+
+```elisp
+M-x agent-shell-anthropic
+;; 모드라인에 [LAPTOP] [main] [Always Ask] [45%] 표시됨
+```
+
+**자세한 내용**: [emacs/README.md](emacs/README.md)
+
+---
+
