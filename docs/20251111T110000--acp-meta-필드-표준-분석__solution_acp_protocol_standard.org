@@ -1,0 +1,291 @@
+#+title:      ACP _meta 필드 표준 분석 - 공식 vs 구현체 확장
+#+date:       [2025-11-11 Mon 11:00]
+#+filetags:   :solution:acp:protocol:standard:claude_code:
+#+identifier: 20251111T110000
+
+* ACP _meta 필드 표준 분석
+:PROPERTIES:
+:CUSTOM_ID: acp-meta-필드-표준-분석
+:END:
+
+** 📋 핵심 발견
+
+*_meta는 ACP 공식 표준이 아닌 claude-code-acp의 비공식 확장입니다.*
+
+| 항목 | ACP 공식 표준 | claude-code-acp 구현 |
+|------+---------------+---------------------|
+| 메타데이터 필드명 | =metadata= | =_meta= |
+| 표준 여부 | ✅ 공식 스펙 | ❌ 벤더 확장 |
+| 위치 | MessagePart 내부 | Request/Response 루트 |
+| 용도 | Citation, Trajectory | systemPrompt, terminal-auth, usage |
+| 패턴 | ACP 표준 | LSP의 =x-= 패턴 유사 |
+
+** 🔍 ACP 공식 표준: metadata
+
+*** 출처
+- 공식 사이트: https://agentcommunicationprotocol.dev
+- GitHub 저장소: https://github.com/i-am-bee/acp
+- 스펙: OpenAPI YAML 기반
+
+*** 구조 (MessagePart)
+
+#+begin_src typescript
+interface MessagePart {
+  content_type: string;
+  content: string | object;
+  content_encoding?: string;
+  content_url?: string;
+  name?: string;
+  metadata?: CitationMetadata | TrajectoryMetadata; // 여기!
+}
+
+// 공식 메타데이터 타입
+type CitationMetadata = {
+  kind: "citation";
+  start_index?: number;
+  end_index?: number;
+  url?: string;
+  title?: string;
+  description?: string;
+}
+
+type TrajectoryMetadata = {
+  kind: "trajectory";
+  message?: string;
+  tool_name?: string;
+  tool_input?: object;
+  tool_output?: object;
+}
+#+end_src
+
+*** 특징
+- *메시지 내부* 에만 존재 (MessagePart 레벨)
+- 출처 추적 (Citation) 또는 추론 과정 (Trajectory) 전용
+- 요청/응답 루트에는 없음
+
+** 🚀 claude-code-acp 비공식 확장: _meta
+
+*** 출처
+- 패키지: =@zed-industries/claude-code-acp= (npm)
+- 저장소: ~/repos/3rd/claude-code-acp/
+- 버전: 0.10.0
+
+*** 구조 (Request/Response 루트)
+
+#+begin_src typescript
+// 요청 예시 (src/acp-agent.ts:116)
+interface ClientCapabilities {
+  fs?: { readTextFile: boolean };
+  terminal?: boolean;
+  _meta?: {  // 비공식 확장!
+    "terminal-auth"?: boolean;
+  }
+}
+
+// 응답 예시 (src/acp-agent.ts:120)
+interface AuthMethod {
+  id: string;
+  name: string;
+  description: string;
+  _meta?: {  // 비공식 확장!
+    "terminal-auth"?: {
+      command: string;
+      args: string[];
+      label: string;
+    }
+  }
+}
+
+// 세션 생성 예시 (src/acp-agent.ts:193)
+interface NewSessionRequest {
+  cwd: string;
+  mcpServers?: McpServer[];
+  _meta?: {  // 비공식 확장!
+    systemPrompt?: string | { append: string };
+  }
+}
+#+end_src
+
+*** 실제 사용 코드
+
+#+begin_src typescript
+// src/acp-agent.ts:116-130
+if (request.clientCapabilities?._meta?.["terminal-auth"] === true) {
+  const cliPath = import.meta
+    .resolve("@anthropic-ai/claude-agent-sdk/cli.js")
+    .replace("file://", "");
+
+  authMethod._meta = {
+    "terminal-auth": {
+      command: "node",
+      args: [cliPath, "/login"],
+      label: "Claude Code Login",
+    },
+  };
+}
+
+// src/acp-agent.ts:193-205
+let systemPrompt: Options["systemPrompt"] = {
+  type: "preset",
+  preset: "claude_code"
+};
+
+if (params._meta?.systemPrompt) {
+  const customPrompt = params._meta.systemPrompt;
+  if (typeof customPrompt === "string") {
+    systemPrompt = customPrompt;
+  } else if (
+    typeof customPrompt === "object" &&
+    "append" in customPrompt &&
+    typeof customPrompt.append === "string"
+  ) {
+    systemPrompt.append = customPrompt.append;
+  }
+}
+#+end_src
+
+** 🎯 왜 _meta인가?
+
+*** LSP(Language Server Protocol) 패턴 차용
+
+LSP에서도 벤더별 확장을 =x-= 접두사로 구분:
+- =x-vscode-...= (VS Code 전용)
+- =x-eclipse-...= (Eclipse 전용)
+
+claude-code-acp는 =_meta= 를 같은 용도로 사용:
+- 표준 호환성 유지 (ACP 스펙 위반 없음)
+- 구현체별 기능 추가 (하위 호환성 보장)
+- 다른 ACP 클라이언트는 무시 가능
+
+*** 장점
+1. *표준 깨지 않음*: ACP 공식 스펙 준수
+2. *확장성*: 새 기능 자유롭게 추가
+3. *호환성*: 다른 클라이언트에 영향 없음
+4. *유연성*: 실험적 기능 테스트 가능
+
+** 📊 현재 상황 정리
+
+*** agent-shell + acp.el
+- *_meta 지원 없음*
+- ACP 공식 표준만 구현
+- claude-code-acp의 확장 기능 사용 불가
+
+*** 결과
+- =systemPrompt= 커스텀 불가 (agent-shell-config.el:170 TODO)
+- =terminal-auth= 사용 불가
+- 토큰 usage 정보 수신 불가
+
+** 🚀 Upstream PR 전략
+
+*** 1. claude-code-acp (우선순위: 높음)
+
+*Issue*: "Expose token usage in sessionUpdate _meta field"
+
+*Rationale*:
+- 클라이언트가 컨텍스트 사용량 모니터링 필요
+- 컴팩트 시점 예측으로 UX 개선
+- 기존 =_meta= 패턴 확장만으로 구현 가능
+
+*PR 제안*:
+#+begin_src typescript
+// src/acp-agent.ts 수정
+await this.client.sessionUpdate({
+  sessionId,
+  update: { ... },
+  _meta: {  // 추가!
+    usage: {
+      input_tokens: query.usage.input_tokens,
+      output_tokens: query.usage.output_tokens,
+      cache_creation_input_tokens: query.usage.cache_creation_input_tokens,
+      cache_read_input_tokens: query.usage.cache_read_input_tokens
+    },
+    model: query.model  // 현재 모델 ID
+  }
+});
+#+end_src
+
+*예상 리뷰 포인트*:
+- [ ] 기존 =_meta= 패턴과 일관성
+- [ ] 다른 클라이언트 영향 없음 (optional)
+- [ ] 보안 이슈 없음 (토큰 수는 민감 정보 아님)
+
+*** 2. acp.el (우선순위: 중간)
+
+*Issue*: "Support _meta field in request builders"
+
+*Rationale*:
+- claude-code-acp 확장 기능 사용 위해 필요
+- ACP 표준 위반 아님 (optional 필드)
+- 다른 ACP 구현체도 =_meta= 사용 가능성
+
+*PR 제안*:
+#+begin_src elisp
+(cl-defun acp-make-session-new-request (&key cwd mcp-servers _meta)
+  "session/new 요청 생성 (_meta 지원 추가)."
+  `((:method . "session/new")
+    (:params . ((cwd . ,(expand-file-name cwd))
+               (mcpServers . ,(or mcp-servers []))
+               ,@(when _meta `((_meta . ,_meta)))))))  ; 추가!
+
+;; sessionUpdate 핸들러에도 _meta 지원
+(defun acp--handle-session-update (notification)
+  (let* ((params (map-elt notification :params))
+         (session-id (map-elt params :sessionId))
+         (update (map-elt params :update))
+         (_meta (map-elt params :_meta)))  ; 추가!
+    ;; _meta 처리 로직 (콜백 호출)
+    (when _meta
+      (run-hook-with-args 'acp-session-meta-hook session-id _meta))))
+#+end_src
+
+*예상 리뷰 포인트*:
+- [ ] 기존 ACP 클라이언트와 호환성
+- [ ] 문서화 필요 (비공식 확장 명시)
+- [ ] 테스트 케이스 추가
+
+*** 3. agent-shell (우선순위: 낮음)
+
+*Issue*: "Document meta-config integration example"
+
+*Rationale*:
+- 커뮤니티에 확장 사례 공유
+- 다른 사용자도 커스텀 통합 가능
+- 한국어 가이드 기여
+
+*PR 제안*:
+- =examples/meta-config-integration.md= 추가
+- agent-shell-config.el 패턴 문서화
+- 모드라인 커스텀 예제
+
+** 📌 핵심 통찰
+
+#+begin_quote
+"_meta는 ACP의 진정한 힘 - 표준 호환성을 유지하면서 무한 확장"
+#+end_quote
+
+LSP의 성공 요인 중 하나는 =x-= 확장 메커니즘. claude-code-acp도 같은 패턴을 =_meta= 로 구현.
+이제 meta-config는:
+1. 표준 ACP 기능 사용 (호환성)
+2. =_meta= 확장 활용 (차별화)
+3. Upstream 기여 (생태계 발전)
+
+** 🔗 참조
+
+- [[https://agentcommunicationprotocol.dev/core-concepts/message-metadata][ACP 공식 문서 - Message Metadata]]
+- [[https://github.com/i-am-bee/acp][ACP 공식 저장소]]
+- [[file:~/repos/3rd/claude-code-acp/src/acp-agent.ts][claude-code-acp 소스]]
+- [[file:~/repos/gh/acp.el/acp.el][acp.el 포크]]
+- [[file:20251111T102000--acp-메타데이터-활용-가이드__solution_acp_agent_shell.org][이전 분석 문서]]
+
+** 📝 다음 단계
+
+1. [ ] claude-code-acp PR 작성 (usage 정보 노출)
+2. [ ] acp.el PR 작성 (_meta 지원)
+3. [ ] agent-shell 문서 기여 (예제)
+4. [ ] meta-config 완성 후 블로그 포스트
+
+---
+
+*작성*: 2025-11-11 (junghanacs)
+*기반*: ACP 공식 스펙 + claude-code-acp v0.10.0 소스 분석
+*결론*: _meta는 벤더 확장, metadata는 공식 표준

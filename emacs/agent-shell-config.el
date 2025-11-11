@@ -114,10 +114,30 @@ magit이 있으면 사용하고, 없으면 nil 반환."
 
 ;;; Mode Line Integration
 
+(defun jh/agent-session-mode-string ()
+  "세션 모드 문자열을 가져옵니다 (agent-shell 내부 상태 직접 접근)."
+  (when (and (derived-mode-p 'agent-shell-mode)
+             (fboundp 'agent-shell--state)
+             (fboundp 'agent-shell--resolve-session-mode-name))
+    (when-let ((mode-name (agent-shell--resolve-session-mode-name
+                           (map-nested-elt (agent-shell--state) '(:session :mode-id))
+                           (map-nested-elt (agent-shell--state) '(:session :modes)))))
+      (propertize (format "[%s]" mode-name)
+                  'face 'font-lock-type-face
+                  'help-echo (format "Session Mode: %s" mode-name)))))
+
+(defun jh/agent-status-frame ()
+  "활동 상태 애니메이션 프레임 (agent-shell 내부 로직 복제 없이 참조)."
+  (when (and (derived-mode-p 'agent-shell-mode)
+             (fboundp 'agent-shell--status-frame))
+    (agent-shell--status-frame)))
+
 (defun jh/agent-context-indicator ()
   "meta-config 컨텍스트 정보를 모드라인에 표시합니다.
-디바이스, Git 브랜치, 세션 모드, 토큰 사용량을 포함."
-  (when (derived-mode-p 'agent-shell-mode)
+디바이스, Git 브랜치, 세션 모드, 토큰 사용량을 포함.
+중복 방지를 위해 agent-shell 내부 함수 대신 직접 구현."
+  (when (and (derived-mode-p 'agent-shell-mode)
+             (memq agent-shell-header-style '(text none nil)))
     (concat
      ;; 디바이스 표시
      (let ((device (jh/get-current-device)))
@@ -126,17 +146,20 @@ magit이 있으면 사용하고, 없으면 nil 반환."
                             'warning
                           'success)
                    'help-echo "현재 디바이스"))
-     
+
      ;; Git 브랜치
      (when-let ((branch (jh/get-git-branch)))
        (propertize (format "[%s] " branch)
                    'face 'font-lock-keyword-face
                    'help-echo "현재 Git 브랜치"))
-     
-     ;; 세션 모드 (agent-shell 기본)
-     (when (fboundp 'agent-shell--mode-line-format)
-       (agent-shell--mode-line-format))
-     
+
+     ;; 세션 모드 (agent-shell 중복 방지)
+     (when-let ((mode-str (jh/agent-session-mode-string)))
+       (concat " " mode-str))
+
+     ;; 활동 상태
+     (jh/agent-status-frame)
+
      ;; 토큰 사용량 추정
      (jh/estimate-token-usage))))
 
@@ -168,7 +191,17 @@ ACP의 _meta.systemPrompt 확장을 활용합니다.
 ;;; Setup Hook
 
 (defun jh/agent-shell-setup ()
-  "agent-shell 버퍼에 meta-config 통합을 활성화합니다."
+  "agent-shell 버퍼에 meta-config 통합을 활성화합니다.
+agent-shell 기본 모드라인을 제거하고 meta-config 버전으로 대체."
+  ;; agent-shell 기본 모드라인 제거
+  (setq-local mode-line-misc-info
+              (seq-remove (lambda (item)
+                            (and (listp item)
+                                 (eq (car item) :eval)
+                                 (listp (cadr item))
+                                 (eq (car (cadr item)) 'agent-shell--mode-line-format)))
+                          mode-line-misc-info))
+  ;; meta-config 모드라인 추가
   (setq-local mode-line-misc-info
               (append mode-line-misc-info
                       '((:eval (jh/agent-context-indicator))))))
