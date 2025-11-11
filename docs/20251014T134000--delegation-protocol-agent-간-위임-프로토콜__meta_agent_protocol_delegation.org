@@ -1,5 +1,5 @@
 #+title:      Delegation Protocol: Agent 간 위임 프로토콜
-#+date:       [2025-10-14 Mon 13:40]
+#+date:       [2025-10-14 Tue 13:40]
 #+filetags:   :meta:agent:protocol:delegation:
 #+identifier: 20251014T134000
 #+export_file_name: 20251014T134000-delegation-protocol.md

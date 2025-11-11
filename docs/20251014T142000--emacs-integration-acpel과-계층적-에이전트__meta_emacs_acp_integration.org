@@ -1,5 +1,5 @@
 #+title:      Emacs Integration: acp.el과 계층적 에이전트
-#+date:       [2025-10-14 Mon 14:20]
+#+date:       [2025-10-14 Tue 14:20]
 #+filetags:   :meta:emacs:acp:integration:
 #+identifier: 20251014T142000
 #+export_file_name: 20251014T142000-emacs-integration.md

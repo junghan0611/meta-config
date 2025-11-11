@@ -1,5 +1,5 @@
 #+title:      Agent Protocol Standards: ACP, MCP, A2A 통합 분석
-#+date:       [2025-10-14 Mon 14:00]
+#+date:       [2025-10-14 Tue 14:00]
 #+filetags:   :meta:protocol:standards:acp:mcp:a2a:
 #+identifier: 20251014T140000
 #+export_file_name: 20251014T140000-protocol-standards.md
