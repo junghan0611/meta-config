@@ -1,0 +1,295 @@
+#+title:      ACP 메타데이터 활용 가이드 - claude-code-acp 분석
+#+date:       [2025-11-11 Mon 10:20]
+#+filetags:   :solution:acp:agent_shell:meta_config:
+#+identifier: 20251111T102000
+
+* ACP 메타데이터 활용 가이드
+:PROPERTIES:
+:CUSTOM_ID: acp-메타데이터-활용-가이드
+:END:
+
+** 📋 요약
+:PROPERTIES:
+:CUSTOM_ID: 요약
+:END:
+
+claude-code-acp (Zed Industries 구현) 소스 분석을 통해 ACP 프로토콜의 _meta 확장 메커니즘과
+실제 활용 방법을 파악함. agent-shell.el + meta-config 통합 최소 구현 방안 도출.
+
+*핵심 발견*:
+- ACP의 _meta 필드로 무제한 확장 가능
+- claude-code-acp는 systemPrompt, terminal-auth 등 활용
+- 5분 내 즉시 구현 가능한 meta-config 통합 방안 존재
+
+** 🎯 claude-code-acp 분석 결과
+:PROPERTIES:
+:CUSTOM_ID: claude-code-acp-분석-결과
+:END:
+
+*** 패키지 구조 (~/repos/3rd/claude-code-acp/)
+:PROPERTIES:
+:CUSTOM_ID: 패키지-구조
+:END:
+
+#+begin_example
+@zed-industries/claude-code-acp v0.10.0 (TypeScript)
+├── @agentclientprotocol/sdk ^0.5.1       # ACP 프로토콜
+├── @anthropic-ai/claude-agent-sdk ^0.1.30
+├── @anthropic-ai/claude-code ^2.0.32
+└── @modelcontextprotocol/sdk ^1.21.0     # MCP 통합
+
+src/
+├── acp-agent.ts      (27KB) ← 핵심 구현
+├── mcp-server.ts     (23KB)
+├── tools.ts          (13KB)
+└── utils.ts          (5KB)
+#+end_example
+
+*** _meta 확장 사용 사례 (실제 코드)
+:PROPERTIES:
+:CUSTOM_ID: meta-확장-사용-사례
+:END:
+
+#+begin_src typescript
+// src/acp-agent.ts:116 - 클라이언트 기능 확장
+if (request.clientCapabilities?._meta?.["terminal-auth"] === true) {
+  authMethod._meta = {
+    "cli-path": "/path/to/claude",
+    "terminal-auth": true
+  }
+}
+
+// src/acp-agent.ts:193 - 커스텀 시스템 프롬프트
+if (params._meta?.systemPrompt) {
+  const customPrompt = params._meta.systemPrompt;
+  if (typeof customPrompt === "string") {
+    systemPrompt = customPrompt;
+  } else if ("append" in customPrompt) {
+    systemPrompt.append = customPrompt.append;
+  }
+}
+#+end_src
+
+*** session/update 알림 타입
+:PROPERTIES:
+:CUSTOM_ID: session-update-알림-타입
+:END:
+
+| 알림 타입 | 설명 | 코드 위치 |
+|------+------+------|
+| available_commands_update | /compact, /model 등 슬래시 커맨드 | :266 |
+| current_mode_update | default/bypass 권한 모드 변경 | :663 |
+| tool_call | 도구 호출 시작 | :514 |
+| tool_call_update | 도구 실행 상태/결과 | :595 |
+| agent_message_chunk | 응답 스트리밍 | :566 |
+| agent_thought_chunk | 내부 추론 과정 | :546 |
+| plan | 실행 계획 표시 | :586 |
+
+** 🚀 meta-config 통합 최소 구현
+:PROPERTIES:
+:CUSTOM_ID: meta-config-통합-최소-구현
+:END:
+
+*** 즉시 가능 (5분, 코드 20줄)
+:PROPERTIES:
+:CUSTOM_ID: 즉시-가능-5분
+:END:
+
+#+begin_src bash
+# ~/repos/gh/meta-config/emacs/agent-shell-config.el
+cat > ~/repos/gh/meta-config/emacs/agent-shell-config.el << 'ELISP'
+;;; agent-shell-config.el --- meta-config ACP integration
+
+(defun jh/agent-context-indicator ()
+  "디바이스 + Git 브랜치 + 세션 모드 표시"
+  (concat
+   ;; 디바이스
+   (when-let ((device (ignore-errors
+                       (with-temp-buffer
+                         (insert-file-contents "~/.current-device")
+                         (string-trim (buffer-string))))))
+     (propertize (format "[%s] " device) 'face 'success))
+   
+   ;; Git 브랜치
+   (when (and (fboundp 'magit-get-current-branch)
+              (magit-get-current-branch))
+     (propertize (format "[%s] " (magit-get-current-branch))
+                 'face 'font-lock-keyword-face))
+   
+   ;; 기존 agent-shell 모드라인
+   (agent-shell--mode-line-format)))
+
+(with-eval-after-load 'agent-shell
+  (add-hook 'agent-shell-mode-hook
+            (lambda ()
+              (setq-local mode-line-misc-info
+                         '((:eval (jh/agent-context-indicator)))))))
+
+(provide 'agent-shell-config)
+ELISP
+
+# init.el에 로드 추가
+echo "(require 'agent-shell-config)" >> ~/.emacs.d/init.el
+#+end_src
+
+*** 커스텀 프롬프트 주입 (10분)
+:PROPERTIES:
+:CUSTOM_ID: 커스텀-프롬프트-주입
+:END:
+
+#+begin_src elisp
+;; acp.el에 _meta 지원 추가 (upstream PR 대상)
+(cl-defun acp-make-session-new-request (&key cwd mcp-servers _meta)
+  "session/new 요청 생성 (_meta 지원)"
+  `((:method . "session/new")
+    (:params . ((cwd . ,(expand-file-name cwd))
+               (mcpServers . ,(or mcp-servers []))
+               ,@(when _meta `((_meta . ,_meta)))))))
+
+;; meta-config 프롬프트 주입
+(defvar jh/agent-custom-prompt
+  "당신은 NixOS와 Emacs 전문가입니다.
+현재 디바이스: %s
+작업 컨텍스트: ~/claude-memory/ Git 저장소
+meta-config 생태계 통합 필수")
+
+(defun jh/agent-new-session-with-prompt ()
+  "커스텀 프롬프트로 세션 시작"
+  (let ((device (getenv "CURRENT_DEVICE")))
+    (acp-send-request
+     :client client
+     :request (acp-make-session-new-request
+               :cwd default-directory
+               :_meta `((systemPrompt . ((append . ,(format jh/agent-custom-prompt device)))))))))
+#+end_src
+
+*** 토큰 사용량 추정 (휴리스틱)
+:PROPERTIES:
+:CUSTOM_ID: 토큰-사용량-추정
+:END:
+
+#+begin_src elisp
+(defvar jh/claude-context-window 200000
+  "Sonnet 4.5 컨텍스트 윈도우")
+
+(defun jh/estimate-token-usage ()
+  "버퍼 토큰 수 추정 및 경고 표시"
+  (when (derived-mode-p 'agent-shell-mode)
+    (let* ((content (buffer-string))
+           (estimated-tokens (/ (length content) 4))  ; 1토큰 ≈ 4자
+           (ratio (/ (float estimated-tokens) jh/claude-context-window)))
+      (cond
+       ((> ratio 0.9) (propertize " [🔴90%+]" 'face 'error))
+       ((> ratio 0.8) (propertize " [🟡80%+]" 'face 'warning))
+       (t "")))))
+#+end_src
+
+** 📊 실현 가능성 매트릭스
+:PROPERTIES:
+:CUSTOM_ID: 실현-가능성-매트릭스
+:END:
+
+| 기능 | 현재 | 즉시(5분) | 단기(1주) | Upstream | 비고 |
+|------+------+----------+----------+----------+------|
+| 디바이스 표시 | ❌ | ✅ | - | - | ~/.current-device |
+| Git 브랜치 | ❌ | ✅ | - | - | magit 연동 |
+| 세션 모드 | ✅ | ✅ | - | - | ACP 표준 |
+| 커스텀 프롬프트 | ❌ | - | ✅ | 🟡 | acp.el PR |
+| 토큰 추정 | ❌ | 🟡 | ✅ | - | 휴리스틱 |
+| 토큰 정확값 | ❌ | - | - | ✅ | claude-code-acp PR |
+| 컴팩트 시점 | ❌ | - | - | ✅ | /compact 명령 |
+| 모델 정보 | ❌ | - | - | ✅ | _meta 응답 |
+
+*범례*:
+- ✅ = 완전 구현 가능
+- 🟡 = 부분 구현 / 제한적
+- ❌ = 불가능
+
+** 🎯 Upstream 기여 로드맵
+:PROPERTIES:
+:CUSTOM_ID: upstream-기여-로드맵
+:END:
+
+*** claude-code-acp (우선순위 1)
+:PROPERTIES:
+:CUSTOM_ID: claude-code-acp-pr
+:END:
+
+*Issue*: "Add usage metrics to _meta field in sessionUpdate"
+
+*Rationale*:
+- 클라이언트가 컨텍스트 사용량 모니터링 필요
+- 컴팩트 시점 예측으로 사용자 경험 개선
+- ACP 표준 호환성 유지 (_meta 활용)
+
+*PR 제안*:
+#+begin_src typescript
+// src/acp-agent.ts 수정
+await this.client.sessionUpdate({
+  sessionId,
+  update: { ... },
+  _meta: {
+    usage: {
+      input_tokens: query.usage.input_tokens,
+      output_tokens: query.usage.output_tokens,
+      cache_creation_input_tokens: query.usage.cache_creation_input_tokens,
+      cache_read_input_tokens: query.usage.cache_read_input_tokens
+    },
+    model: query.model  // 현재 사용 중인 모델 ID
+  }
+});
+#+end_src
+
+*** acp.el (우선순위 2)
+:PROPERTIES:
+:CUSTOM_ID: acp-el-pr
+:END:
+
+*Issue*: "Support _meta field in request builders"
+
+*PR*:
+#+begin_src elisp
+(cl-defun acp-make-session-new-request (&key cwd mcp-servers _meta)
+  `((:method . "session/new")
+    (:params . ((cwd . ,(expand-file-name cwd))
+               (mcpServers . ,(or mcp-servers []))
+               ,@(when _meta `((_meta . ,_meta)))))))
+#+end_src
+
+*** agent-shell (우선순위 3)
+:PROPERTIES:
+:CUSTOM_ID: agent-shell-pr
+:END:
+
+*Documentation*:
+- meta-config 통합 사례 문서화
+- 한국어 가이드 기여
+- _meta 핸들링 예제 코드
+
+** 🔗 참조
+:PROPERTIES:
+:CUSTOM_ID: 참조
+:END:
+
+- [[file:~/repos/3rd/claude-code-acp/src/acp-agent.ts][claude-code-acp 소스]]
+- [[file:~/repos/gh/agent-shell/agent-shell.el][agent-shell 포크]]
+- [[file:~/repos/gh/acp.el/acp.el][acp.el 포크]]
+- [[file:~/claude-memory/areas/20250926T130000--acp-mcp-프로토콜-패러다임-전환__agent_protocol_architecture.org][ACP vs MCP 문서]]
+
+** 📌 핵심 통찰
+:PROPERTIES:
+:CUSTOM_ID: 핵심-통찰
+:END:
+
+#+begin_quote
+"_meta 필드가 ACP의 진정한 힘 - 표준 프로토콜 호환성을 유지하면서 무한 확장"
+#+end_quote
+
+claude-code-acp 분석을 통해 발견: _meta로 표준을 깨지 않고 구현체별 기능 추가 가능.
+이는 LSP의 성공 패턴과 동일한 접근 방식.
+
+--------------
+
+*작성*: 2025-11-11 (junghanacs)
+*기반*: claude-code-acp v0.10.0 소스 분석
+*다음 단계*: meta-config/emacs/agent-shell-config.el 생성
